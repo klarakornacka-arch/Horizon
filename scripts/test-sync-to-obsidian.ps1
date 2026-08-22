@@ -102,6 +102,40 @@ lang: zh
     & "$PSScriptRoot\sync-to-obsidian.ps1" -Date $date -VaultPath $vault -SourceFile $source
     $secondHash = (Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash
 
+    Write-Utf8File -Path $source -Content (@'
+---
+layout: default
+title: "Example <body> text is metadata, not a document"
+date: {0}
+lang: zh
+---
+
+Use `<html>` as an inline-code example.
+
+## 今日优先选题 Top 3
+1. 元数据与内联代码是允许的
+'@ -f $date)
+    & "$PSScriptRoot\sync-to-obsidian.ps1" -Date $date -VaultPath $vault -SourceFile $source
+    $secondHash = (Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash
+
+    Write-Utf8File -Path $source -Content (@'
+---
+date: {0}
+lang: zh
+---
+
+## 今日优先选题 Top 3
+1. 围栏关闭必须严格
+
+```text
+<body>仍在围栏内</body>
+``` not a closing fence
+## 今日优先选题 Top 3
+```
+'@ -f $date)
+    & "$PSScriptRoot\sync-to-obsidian.ps1" -Date $date -VaultPath $vault -SourceFile $source
+    $secondHash = (Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash
+
     Write-Utf8File -Path $source -Content @"
 ---
 layout: default
@@ -177,6 +211,20 @@ lang: zh
     Write-Utf8File -Path $source -Content @"
 ---
 date: $date
+'date': $date
+lang: zh
+---
+## 今日优先选题 Top 3
+1. 带引号的重复日期键
+"@
+    Assert-Fails -Message 'Quoted duplicate date keys were accepted' -ExpectedError 'exactly one date' -Action {
+        & "$PSScriptRoot\sync-to-obsidian.ps1" -Date $date -VaultPath $vault -SourceFile $source
+    }
+    Assert-TargetHash -ExpectedHash $secondHash -Message 'Quoted duplicate date validation damaged the existing note'
+
+    Write-Utf8File -Path $source -Content @"
+---
+date: $date
 lang: zh
 lang: zh
 ---
@@ -187,6 +235,20 @@ lang: zh
         & "$PSScriptRoot\sync-to-obsidian.ps1" -Date $date -VaultPath $vault -SourceFile $source
     }
     Assert-TargetHash -ExpectedHash $secondHash -Message 'Duplicate language validation damaged the existing note'
+
+    Write-Utf8File -Path $source -Content @"
+---
+date: $date
+lang: zh
+"lang": zh
+---
+## 今日优先选题 Top 3
+1. 带引号的重复语言键
+"@
+    Assert-Fails -Message 'Quoted duplicate language keys were accepted' -ExpectedError 'exactly one lang' -Action {
+        & "$PSScriptRoot\sync-to-obsidian.ps1" -Date $date -VaultPath $vault -SourceFile $source
+    }
+    Assert-TargetHash -ExpectedHash $secondHash -Message 'Quoted duplicate language validation damaged the existing note'
 
     [System.IO.File]::WriteAllBytes($source, [byte[]](0xFF, 0xFE, 0x00))
     Assert-Fails -Message 'Malformed UTF-8 was accepted' -ExpectedError 'valid UTF-8' -Action {

@@ -61,23 +61,34 @@ function Get-UnfencedMarkdown {
     $fenceCharacter = $null
     $fenceLength = 0
     foreach ($line in [regex]::Split($Markdown, '\r?\n')) {
-        $fenceMatch = [regex]::Match($line, '^\s{0,3}(?<fence>`{3,}|~{3,})')
-        if ($fenceMatch.Success) {
-            $fence = $fenceMatch.Groups['fence'].Value
-            if (-not $insideFence) {
+        if (-not $insideFence) {
+            $openingFence = [regex]::Match($line, '^\s{0,3}(?<fence>`{3,}|~{3,})')
+            if ($openingFence.Success) {
+                $fence = $openingFence.Groups['fence'].Value
                 $insideFence = $true
                 $fenceCharacter = $fence[0]
                 $fenceLength = $fence.Length
                 continue
             }
-            if ($fence[0] -eq $fenceCharacter -and $fence.Length -ge $fenceLength) {
-                $insideFence = $false
-                continue
+        } else {
+            $closingFence = [regex]::Match($line, '^\s{0,3}(?<fence>`{3,}|~{3,})[ \t]*$')
+            if ($closingFence.Success) {
+                $fence = $closingFence.Groups['fence'].Value
+                if ($fence[0] -eq $fenceCharacter -and $fence.Length -ge $fenceLength) {
+                    $insideFence = $false
+                }
             }
+            continue
         }
-        if (-not $insideFence) { [void]$visible.AppendLine($line) }
+        [void]$visible.AppendLine($line)
     }
     return $visible.ToString()
+}
+
+function Remove-InlineCodeSpans {
+    param([Parameter(Mandatory = $true)][string]$Markdown)
+
+    return [regex]::Replace($Markdown, '(?s)(`+).*?\1', '')
 }
 
 function Get-FrontMatterValue {
@@ -86,7 +97,7 @@ function Get-FrontMatterValue {
         [Parameter(Mandatory = $true)][string]$Key
     )
 
-    $keyPattern = '(?m)^{0}:[ \t]*(?<value>.*?)[ \t]*\r?$' -f [regex]::Escape($Key)
+    $keyPattern = '(?m)^(?:{0}|''{0}''|"{0}")[ \t]*:[ \t]*(?<value>.*?)[ \t]*\r?$' -f [regex]::Escape($Key)
     $matches = [regex]::Matches($FrontMatter, $keyPattern)
     if ($matches.Count -ne 1) {
         throw "Expected exactly one $Key key in Jekyll front matter; found $($matches.Count)."
@@ -150,15 +161,17 @@ function Assert-Briefing {
 
     $content = Get-StrictUtf8Text -Path $Path
     if ([string]::IsNullOrWhiteSpace($content)) { throw 'Downloaded briefing is empty.' }
-    $visibleMarkdown = Get-UnfencedMarkdown -Markdown $content
-    if ($visibleMarkdown -match '(?is)<\s*/?\s*(?:!doctype|html|head|body)\b') {
-        throw 'Downloaded content looks like an HTML/error page, not Markdown.'
-    }
     $frontMatterMatch = [regex]::Match($content, '\A---\r?\n(?<frontMatter>.*?)\r?\n---(?:\r?\n|$)', [System.Text.RegularExpressions.RegexOptions]::Singleline)
     if (-not $frontMatterMatch.Success) {
         throw 'Expected Jekyll front matter is missing from the generated briefing.'
     }
     $frontMatter = $frontMatterMatch.Groups['frontMatter'].Value
+    $bodyStart = $frontMatterMatch.Index + $frontMatterMatch.Length
+    $visibleMarkdown = Get-UnfencedMarkdown -Markdown $content.Substring($bodyStart)
+    $visibleMarkdown = Remove-InlineCodeSpans -Markdown $visibleMarkdown
+    if ($visibleMarkdown -match '(?is)<\s*/?\s*(?:!doctype|html|head|body)\b') {
+        throw 'Downloaded content looks like an HTML/error page, not Markdown.'
+    }
     $frontMatterDate = Get-FrontMatterValue -FrontMatter $frontMatter -Key 'date'
     if ($frontMatterDate -cne $ExpectedDate) {
         throw "Briefing front matter does not contain the expected date $ExpectedDate."
