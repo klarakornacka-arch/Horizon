@@ -53,6 +53,95 @@ function Get-StrictUtf8Text {
     }
 }
 
+function Get-UnfencedMarkdown {
+    param([Parameter(Mandatory = $true)][string]$Markdown)
+
+    $visible = [System.Text.StringBuilder]::new()
+    $insideFence = $false
+    $fenceCharacter = $null
+    $fenceLength = 0
+    foreach ($line in [regex]::Split($Markdown, '\r?\n')) {
+        $fenceMatch = [regex]::Match($line, '^\s{0,3}(?<fence>`{3,}|~{3,})')
+        if ($fenceMatch.Success) {
+            $fence = $fenceMatch.Groups['fence'].Value
+            if (-not $insideFence) {
+                $insideFence = $true
+                $fenceCharacter = $fence[0]
+                $fenceLength = $fence.Length
+                continue
+            }
+            if ($fence[0] -eq $fenceCharacter -and $fence.Length -ge $fenceLength) {
+                $insideFence = $false
+                continue
+            }
+        }
+        if (-not $insideFence) { [void]$visible.AppendLine($line) }
+    }
+    return $visible.ToString()
+}
+
+function Get-FrontMatterValue {
+    param(
+        [Parameter(Mandatory = $true)][string]$FrontMatter,
+        [Parameter(Mandatory = $true)][string]$Key
+    )
+
+    $keyPattern = '(?m)^{0}:[ \t]*(?<value>.*?)[ \t]*\r?$' -f [regex]::Escape($Key)
+    $matches = [regex]::Matches($FrontMatter, $keyPattern)
+    if ($matches.Count -ne 1) {
+        throw "Expected exactly one $Key key in Jekyll front matter; found $($matches.Count)."
+    }
+    $value = $matches[0].Groups['value'].Value.Trim()
+    if ($value.Length -ge 2 -and $value[0] -eq $value[$value.Length - 1] -and ($value[0] -eq '"' -or $value[0] -eq "'")) {
+        return $value.Substring(1, $value.Length - 2)
+    }
+    return $value
+}
+
+function Assert-NoReparsePointsInExistingPath {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][string]$Description
+    )
+
+    $fullPath = [System.IO.Path]::GetFullPath($Path)
+    $root = [System.IO.Path]::GetPathRoot($fullPath)
+    if ([string]::IsNullOrEmpty($root)) { throw "$Description has no filesystem root." }
+    if (Test-ReparsePoint -Path $root) { throw "$Description component is a reparse point: $root" }
+
+    $current = $root
+    $relative = $fullPath.Substring($root.Length)
+    foreach ($component in ($relative -split '[\\/]' | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })) {
+        $current = [System.IO.Path]::Combine($current, $component)
+        if (Test-ReparsePoint -Path $current) {
+            throw "$Description component is a reparse point: $current"
+        }
+    }
+}
+
+function Assert-SafeRepository {
+    param([Parameter(Mandatory = $true)][string]$Value)
+
+    $parts = $Value -split '/', -1
+    if ($parts.Count -ne 2) { throw 'Repository must use safe owner/repository components.' }
+    foreach ($part in $parts) {
+        if ($part -eq '.' -or $part -eq '..' -or $part -notmatch '^[A-Za-z0-9_.-]+$') {
+            throw 'Repository must use safe owner/repository components.'
+        }
+    }
+}
+
+function Remove-TemporaryFile {
+    param([string]$Path, [string]$Description)
+
+    if ($null -eq $Path -or -not [System.IO.File]::Exists($Path)) { return }
+    try {
+        [System.IO.File]::Delete($Path)
+    } catch {
+        Write-Warning "Sync completed or failed, but could not remove $Description '$Path': $($_.Exception.Message)"
+    }
+}
+
 function Assert-Briefing {
     param(
         [Parameter(Mandatory = $true)][string]$Path,
@@ -61,7 +150,8 @@ function Assert-Briefing {
 
     $content = Get-StrictUtf8Text -Path $Path
     if ([string]::IsNullOrWhiteSpace($content)) { throw 'Downloaded briefing is empty.' }
-    if ($content -match '(?is)<\s*(?:!doctype|html|head|body)\b') {
+    $visibleMarkdown = Get-UnfencedMarkdown -Markdown $content
+    if ($visibleMarkdown -match '(?is)<\s*/?\s*(?:!doctype|html|head|body)\b') {
         throw 'Downloaded content looks like an HTML/error page, not Markdown.'
     }
     $frontMatterMatch = [regex]::Match($content, '\A---\r?\n(?<frontMatter>.*?)\r?\n---(?:\r?\n|$)', [System.Text.RegularExpressions.RegexOptions]::Singleline)
@@ -69,15 +159,16 @@ function Assert-Briefing {
         throw 'Expected Jekyll front matter is missing from the generated briefing.'
     }
     $frontMatter = $frontMatterMatch.Groups['frontMatter'].Value
-    $expectedDatePattern = '(?m)^date:\s*{0}[ \t]*\r?$' -f [regex]::Escape($ExpectedDate)
-    if ($frontMatter -notmatch $expectedDatePattern) {
+    $frontMatterDate = Get-FrontMatterValue -FrontMatter $frontMatter -Key 'date'
+    if ($frontMatterDate -cne $ExpectedDate) {
         throw "Briefing front matter does not contain the expected date $ExpectedDate."
     }
-    if ($frontMatter -notmatch '(?m)^lang:\s*zh[ \t]*\r?$') {
+    $frontMatterLanguage = Get-FrontMatterValue -FrontMatter $frontMatter -Key 'lang'
+    if ($frontMatterLanguage -cne 'zh') {
         throw 'Expected Chinese briefing front matter "lang: zh" is missing.'
     }
 
-    $topThreeHeadings = [regex]::Matches($content, '(?m)^##\s+今日优先选题 Top 3[ \t]*\r?$')
+    $topThreeHeadings = [regex]::Matches($visibleMarkdown, '(?m)^##\s+今日优先选题 Top 3[ \t]*\r?$')
     if ($topThreeHeadings.Count -ne 1) {
         throw "Expected exactly one '## 今日优先选题 Top 3' heading; found $($topThreeHeadings.Count)."
     }
@@ -92,21 +183,24 @@ function Test-ReparsePoint {
 }
 
 $temporaryPath = $null
-$backupPath = $null
 try {
     $dateText = Get-IsoDate -Value $Date
 
     $vaultInput = [System.IO.Path]::GetFullPath($VaultPath)
+    Assert-NoReparsePointsInExistingPath -Path $vaultInput -Description 'VaultPath'
     [System.IO.Directory]::CreateDirectory($vaultInput) | Out-Null
+    Assert-NoReparsePointsInExistingPath -Path $vaultInput -Description 'VaultPath'
     $resolvedVault = (Resolve-Path -LiteralPath $vaultInput).ProviderPath
     $destinationInput = [System.IO.Path]::GetFullPath([System.IO.Path]::Combine($resolvedVault, 'AI情报日报'))
     Assert-ChildPath -Root $resolvedVault -Candidate $destinationInput -Description 'Destination directory'
+    Assert-NoReparsePointsInExistingPath -Path $destinationInput -Description 'Destination directory'
     if (Test-ReparsePoint -Path $destinationInput) {
         throw 'Destination directory is a reparse point; refusing to write through it.'
     }
     [System.IO.Directory]::CreateDirectory($destinationInput) | Out-Null
     $destinationDirectory = (Resolve-Path -LiteralPath $destinationInput).ProviderPath
     Assert-ChildPath -Root $resolvedVault -Candidate $destinationDirectory -Description 'Destination directory'
+    Assert-NoReparsePointsInExistingPath -Path $destinationDirectory -Description 'Destination directory'
 
     $destination = [System.IO.Path]::GetFullPath([System.IO.Path]::Combine($destinationDirectory, "$dateText.md"))
     Assert-ChildPath -Root $destinationDirectory -Candidate $destination -Description 'Destination file'
@@ -115,15 +209,17 @@ try {
         throw 'Destination file is a reparse point; refusing to replace it.'
     }
 
+    # This protects static or accidental reparse escapes. It is not a defense against a malicious
+    # concurrent process swapping filesystem objects between these checks and the final move.
+    Assert-NoReparsePointsInExistingPath -Path $vaultInput -Description 'VaultPath'
+    Assert-NoReparsePointsInExistingPath -Path $destinationDirectory -Description 'Destination directory'
     $temporaryPath = [System.IO.Path]::Combine($destinationDirectory, ".ai-frontier-radar-$([guid]::NewGuid()).tmp")
     Assert-ChildPath -Root $destinationDirectory -Candidate $temporaryPath -Description 'Temporary file'
     $stream = [System.IO.File]::Open($temporaryPath, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
     $stream.Dispose()
 
     if ([string]::IsNullOrWhiteSpace($SourceFile)) {
-        if ([string]::IsNullOrWhiteSpace($Repository) -or $Repository -notmatch '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$') {
-            throw 'Repository must be an owner/name value suitable for the public GitHub raw URL.'
-        }
+        Assert-SafeRepository -Value $Repository
         $rawUri = "https://raw.githubusercontent.com/$Repository/gh-pages/_posts/$dateText-summary-zh.md"
         Invoke-WebRequest -Uri $rawUri -Headers @{ 'User-Agent' = 'AI-Frontier-Radar-Sync'; 'Accept' = 'text/plain' } -OutFile $temporaryPath -MaximumRedirection 5
     } else {
@@ -135,6 +231,9 @@ try {
     }
 
     Assert-Briefing -Path $temporaryPath -ExpectedDate $dateText
+    Assert-NoReparsePointsInExistingPath -Path $vaultInput -Description 'VaultPath'
+    Assert-NoReparsePointsInExistingPath -Path $destinationDirectory -Description 'Destination directory'
+    if (Test-ReparsePoint -Path $destination) { throw 'Destination file is a reparse point; refusing to replace it.' }
     if ([System.IO.File]::Exists($destination)) {
         $destinationHash = (Get-FileHash -LiteralPath $destination -Algorithm SHA256).Hash
         $temporaryHash = (Get-FileHash -LiteralPath $temporaryPath -Algorithm SHA256).Hash
@@ -142,18 +241,16 @@ try {
             Write-Output "Unchanged: $destination"
             return
         }
-        $backupPath = [System.IO.Path]::Combine($destinationDirectory, ".ai-frontier-radar-$([guid]::NewGuid()).bak")
-        Assert-ChildPath -Root $destinationDirectory -Candidate $backupPath -Description 'Replacement backup file'
-        [System.IO.File]::Replace($temporaryPath, $destination, $backupPath)
+        Assert-NoReparsePointsInExistingPath -Path $vaultInput -Description 'VaultPath'
+        Assert-NoReparsePointsInExistingPath -Path $destinationDirectory -Description 'Destination directory'
+        if (Test-ReparsePoint -Path $destination) { throw 'Destination file is a reparse point; refusing to replace it.' }
+        [System.IO.File]::Move($temporaryPath, $destination, $true)
     } else {
+        Assert-NoReparsePointsInExistingPath -Path $vaultInput -Description 'VaultPath'
+        Assert-NoReparsePointsInExistingPath -Path $destinationDirectory -Description 'Destination directory'
         [System.IO.File]::Move($temporaryPath, $destination)
     }
     Write-Output "Synced: $destination"
 } finally {
-    if ($null -ne $temporaryPath -and [System.IO.File]::Exists($temporaryPath)) {
-        [System.IO.File]::Delete($temporaryPath)
-    }
-    if ($null -ne $backupPath -and [System.IO.File]::Exists($backupPath)) {
-        [System.IO.File]::Delete($backupPath)
-    }
+    Remove-TemporaryFile -Path $temporaryPath -Description 'temporary download file'
 }

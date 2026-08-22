@@ -7,6 +7,10 @@ $date = '2026-08-22'
 $target = Join-Path $vault "AI情报日报\\$date.md"
 $unsafeVault = Join-Path $testRoot 'unsafe-vault'
 $outside = Join-Path $testRoot 'outside'
+$vaultRootTarget = Join-Path $testRoot 'vault-root-target'
+$vaultRootJunction = Join-Path $testRoot 'vault-root-junction'
+$vaultAncestorTarget = Join-Path $testRoot 'vault-ancestor-target'
+$vaultAncestorJunction = Join-Path $testRoot 'vault-ancestor-junction'
 $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
 
 function Write-Utf8File {
@@ -79,6 +83,25 @@ lang: zh
     $secondHash = (Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash
     if ($firstHash -eq $secondHash) { throw 'A changed valid briefing did not replace the existing note' }
 
+    Write-Utf8File -Path $source -Content (@'
+---
+layout: default
+title: "Horizon Summary: {0} (ZH)"
+date: {0}
+lang: zh
+---
+
+## 今日优先选题 Top 3
+1. 围栏外的有效选题
+
+```html
+<body>Example code, not a document.</body>
+## 今日优先选题 Top 3
+```
+'@ -f $date)
+    & "$PSScriptRoot\sync-to-obsidian.ps1" -Date $date -VaultPath $vault -SourceFile $source
+    $secondHash = (Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash
+
     Write-Utf8File -Path $source -Content @"
 ---
 layout: default
@@ -132,10 +155,38 @@ date: $date
 ## 今日优先选题 Top 3
 1. 没有中文元数据
 "@
-    Assert-Fails -Message 'Missing Chinese metadata was accepted' -ExpectedError 'lang: zh' -Action {
+    Assert-Fails -Message 'Missing Chinese metadata was accepted' -ExpectedError 'exactly one lang|lang: zh' -Action {
         & "$PSScriptRoot\sync-to-obsidian.ps1" -Date $date -VaultPath $vault -SourceFile $source
     }
     Assert-TargetHash -ExpectedHash $secondHash -Message 'Chinese metadata validation damaged the existing note'
+
+    Write-Utf8File -Path $source -Content @"
+---
+date: $date
+date: $date
+lang: zh
+---
+## 今日优先选题 Top 3
+1. 重复日期键
+"@
+    Assert-Fails -Message 'Duplicate date keys were accepted' -ExpectedError 'exactly one date' -Action {
+        & "$PSScriptRoot\sync-to-obsidian.ps1" -Date $date -VaultPath $vault -SourceFile $source
+    }
+    Assert-TargetHash -ExpectedHash $secondHash -Message 'Duplicate date validation damaged the existing note'
+
+    Write-Utf8File -Path $source -Content @"
+---
+date: $date
+lang: zh
+lang: zh
+---
+## 今日优先选题 Top 3
+1. 重复语言键
+"@
+    Assert-Fails -Message 'Duplicate language keys were accepted' -ExpectedError 'exactly one lang' -Action {
+        & "$PSScriptRoot\sync-to-obsidian.ps1" -Date $date -VaultPath $vault -SourceFile $source
+    }
+    Assert-TargetHash -ExpectedHash $secondHash -Message 'Duplicate language validation damaged the existing note'
 
     [System.IO.File]::WriteAllBytes($source, [byte[]](0xFF, 0xFE, 0x00))
     Assert-Fails -Message 'Malformed UTF-8 was accepted' -ExpectedError 'valid UTF-8' -Action {
@@ -149,12 +200,58 @@ date: $date
     if (Test-Path -LiteralPath (Join-Path $testRoot 'escape.md')) { throw 'Date path traversal wrote outside the vault root' }
     Assert-TargetHash -ExpectedHash $secondHash -Message 'Date validation failure damaged the existing note'
 
+    Write-Utf8File -Path $source -Content @"
+---
+date: $date
+lang: zh
+---
+## 今日优先选题 Top 3
+1. 用于路径安全测试的有效选题
+"@
+    New-Item -ItemType Directory -Path $vaultRootTarget, $vaultAncestorTarget | Out-Null
+    New-Item -ItemType Junction -Path $vaultRootJunction -Target $vaultRootTarget | Out-Null
+    Assert-Fails -Message 'A VaultPath junction was accepted' -ExpectedError 'VaultPath component is a reparse point' -Action {
+        & "$PSScriptRoot\sync-to-obsidian.ps1" -Date $date -VaultPath $vaultRootJunction -SourceFile $source
+    }
+    if (Test-Path -LiteralPath (Join-Path $vaultRootTarget "AI情报日报\\$date.md")) { throw 'VaultPath junction wrote outside the requested root' }
+
+    New-Item -ItemType Junction -Path $vaultAncestorJunction -Target $vaultAncestorTarget | Out-Null
+    Assert-Fails -Message 'A VaultPath ancestor junction was accepted' -ExpectedError 'VaultPath component is a reparse point' -Action {
+        & "$PSScriptRoot\sync-to-obsidian.ps1" -Date $date -VaultPath (Join-Path $vaultAncestorJunction 'nested-vault') -SourceFile $source
+    }
+    if (Test-Path -LiteralPath (Join-Path $vaultAncestorTarget "nested-vault\\AI情报日报\\$date.md")) { throw 'VaultPath ancestor junction wrote outside the requested root' }
+
     New-Item -ItemType Directory -Path $unsafeVault, $outside | Out-Null
     New-Item -ItemType Junction -Path (Join-Path $unsafeVault 'AI情报日报') -Target $outside | Out-Null
     Assert-Fails -Message 'A destination junction outside the vault was accepted' -ExpectedError 'reparse point' -Action {
         & "$PSScriptRoot\sync-to-obsidian.ps1" -Date $date -VaultPath $unsafeVault -SourceFile $source
     }
     if (Test-Path -LiteralPath (Join-Path $outside "$date.md")) { throw 'Destination junction wrote outside the vault root' }
+
+    Assert-Fails -Message 'Repository owner dot component was accepted' -ExpectedError 'safe owner/repository' -Action {
+        & "$PSScriptRoot\sync-to-obsidian.ps1" -Date $date -VaultPath (Join-Path $testRoot 'remote-validation') -Repository './repo'
+    }
+    Assert-Fails -Message 'Repository repository dot-dot component was accepted' -ExpectedError 'safe owner/repository' -Action {
+        & "$PSScriptRoot\sync-to-obsidian.ps1" -Date $date -VaultPath (Join-Path $testRoot 'remote-validation') -Repository 'owner/..'
+    }
+
+    $lockedTarget = [System.IO.File]::Open($target, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::Read)
+    try {
+        Write-Utf8File -Path $source -Content @"
+---
+date: $date
+lang: zh
+---
+## 今日优先选题 Top 3
+1. 在锁定目标上的有效更新
+"@
+        Assert-Fails -Message 'A locked destination was overwritten' -Action {
+            & "$PSScriptRoot\sync-to-obsidian.ps1" -Date $date -VaultPath $vault -SourceFile $source
+        }
+        Assert-TargetHash -ExpectedHash $secondHash -Message 'A failed overwrite damaged the existing note'
+    } finally {
+        $lockedTarget.Dispose()
+    }
 
     $temporaryFiles = @(Get-ChildItem -LiteralPath (Split-Path -Parent $target) -Force -Filter '.ai-frontier-radar-*')
     if ($temporaryFiles.Count -ne 0) { throw 'Temporary or replacement-backup files were not cleaned up' }
