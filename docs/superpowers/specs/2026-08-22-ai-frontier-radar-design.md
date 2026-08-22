@@ -9,9 +9,9 @@
 - GitHub 用户：`klarakornacka-arch`
 - 目标 Fork：`https://github.com/klarakornacka-arch/Horizon`
 - 预期 Pages：`https://klarakornacka-arch.github.io/Horizon/`
-- 本地 Horizon：`D:\obsidian\Horizon`
-- Obsidian Vault：`D:\obsidian\人工智能尝试`
-- 日报目录：`D:\obsidian\人工智能尝试\AI情报日报`
+- 本地 Horizon：`${HORIZON_REPOSITORY}`
+- Obsidian Vault：`${OBSIDIAN_VAULT}`
+- 日报目录：`${OBSIDIAN_VAULT}\AI情报日报`
 - 日报名称：AI 前沿雷达
 
 ## 总体架构
@@ -128,17 +128,16 @@ GitHub Actions 的 cron 表达式使用 `0 11 * * *`。GitHub 定时任务可能
 ## 文件结构
 
 ```text
-D:\obsidian\
-├─ Horizon\
+${HORIZON_REPOSITORY}\
 │  ├─ data\config.json
 │  ├─ profiles\ai-blogger\
 │  ├─ .github\workflows\daily-summary.yml
 │  ├─ scripts\sync-to-obsidian.ps1
 │  ├─ .env.example
 │  └─ docs\
-└─ 人工智能尝试\
-   └─ AI情报日报\
-      └─ YYYY-MM-DD.md
+${OBSIDIAN_VAULT}\
+└─ AI情报日报\
+   └─ YYYY-MM-DD.md
 ```
 
 具体 profile 文件名和 Pages 产物路径以当前 Horizon 主分支的既有结构为准；实施不得为了匹配本文示意而绕过上游项目约定。
@@ -169,3 +168,6 @@ D:\obsidian\
 - 将 Horizon 程序文件放进 Obsidian Vault。
 
 这些功能可在首版稳定运行后按独立需求设计和实施。
+
+
+Implementation note: The actual Vault path is supplied only to the local installer or runtime and is never committed.
