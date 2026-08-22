@@ -43,6 +43,7 @@ jobs:
       - name: Run Horizon
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          HORIZON_REPORT_DATE: ${{ env.DATE }}
         run: uv run horizon --hours 24
 
       - name: Add creator selections

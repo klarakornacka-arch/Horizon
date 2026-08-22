@@ -130,6 +130,55 @@ def test_max_items_works_without_category_groups() -> None:
     assert [item.id for item in result.items] == ["higher"]
 
 
+def test_sparse_group_quota_rolls_over_to_fill_global_cap() -> None:
+    filtering = DigestConfig(
+        max_items=4,
+        category_groups={
+            "ai": CategoryGroupConfig(limit=2, categories=["ai"]),
+            "finance": CategoryGroupConfig(limit=2, categories=["finance"]),
+        },
+    )
+    items = [
+        make_item("ai-top", 10.0, "ai"),
+        make_item("ai-tied-first", 9.0, "ai"),
+        make_item("ai-tied-second", 9.0, "ai"),
+        make_item("ai-fourth", 8.0, "ai"),
+        make_item("finance-only", 7.5, "finance"),
+    ]
+
+    result = make_orchestrator(filtering).apply_balanced_digest(items)
+
+    assert [item.id for item in result.items] == [
+        "ai-top",
+        "ai-tied-first",
+        "finance-only",
+        "ai-tied-second",
+    ]
+    assert len({id(item) for item in result.items}) == 4
+
+
+def test_rollover_does_not_restore_items_below_profile_threshold() -> None:
+    filtering = DigestConfig(
+        max_items=3,
+        category_groups={
+            "ai": CategoryGroupConfig(limit=1, categories=["ai"]),
+            "finance": CategoryGroupConfig(limit=2, categories=["finance"]),
+        },
+    )
+    orchestrator = make_orchestrator(filtering)
+    items = [
+        make_item("ai-top", 9.0, "ai"),
+        make_item("ai-rollover", 8.0, "ai"),
+        make_item("below-threshold", 6.9, "ai"),
+    ]
+
+    result = asyncio.run(
+        orchestrator.filter_items(items, topic_dedup=False, log=False)
+    )
+
+    assert [item.id for item in result.items] == ["ai-top", "ai-rollover"]
+
+
 def test_filter_items_skips_ai_topic_dedup_for_disabled_profile(monkeypatch) -> None:
     orchestrator = make_orchestrator(DigestConfig())
     orchestrator.profiles = ProfileRegistry.load(

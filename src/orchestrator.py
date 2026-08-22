@@ -4,7 +4,9 @@ import asyncio
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
+import os
 from pathlib import Path
+import re
 from typing import Dict, List, Literal, Optional
 from urllib.parse import unquote_plus, urlsplit
 import httpx
@@ -48,6 +50,77 @@ _TRACKING_QUERY_PARAMETERS = {
     "twclid",
     "vero_id",
 }
+
+_REPORT_DATE_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+_SOURCE_VERSION_PATTERN = re.compile(r"^[0-9A-Fa-f]{7,64}$")
+
+
+def resolve_report_date(*, now_utc: Optional[datetime] = None) -> str:
+    """Return the explicit report date, or preserve the historical UTC date."""
+    override = os.getenv("HORIZON_REPORT_DATE")
+    if override is not None:
+        try:
+            parsed = datetime.strptime(override, "%Y-%m-%d")
+        except ValueError as exc:
+            raise ValueError(
+                "HORIZON_REPORT_DATE must be an ISO calendar date in YYYY-MM-DD form"
+            ) from exc
+        if not _REPORT_DATE_PATTERN.fullmatch(override) or parsed.strftime("%Y-%m-%d") != override:
+            raise ValueError(
+                "HORIZON_REPORT_DATE must be an ISO calendar date in YYYY-MM-DD form"
+            )
+        return override
+
+    current = now_utc or datetime.now(timezone.utc)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=timezone.utc)
+    return current.astimezone(timezone.utc).strftime("%Y-%m-%d")
+
+
+def resolve_source_version(value: Optional[str] = None) -> str:
+    """Return a non-secret source identifier suitable for published metadata."""
+    candidate = os.getenv("GITHUB_SHA") if value is None else value
+    if candidate and _SOURCE_VERSION_PATTERN.fullmatch(candidate):
+        return candidate
+    return "local"
+
+
+def render_jekyll_post(
+    summary: str,
+    *,
+    report_date: str,
+    language: str,
+    generated_at: Optional[datetime] = None,
+    source_version: Optional[str] = None,
+) -> str:
+    """Render a canonical AI Frontier Radar post for Pages and raw Markdown."""
+    generated = generated_at or datetime.now(timezone.utc)
+    if generated.tzinfo is None:
+        generated = generated.replace(tzinfo=timezone.utc)
+    generated_text = generated.astimezone(timezone.utc).isoformat(timespec="seconds").replace(
+        "+00:00", "Z"
+    )
+
+    summary_content = summary.strip()
+    first_line = summary_content.split("\n", 1)[0]
+    if first_line.startswith("# "):
+        parts = summary_content.split("\n", 1)
+        summary_content = parts[1].strip() if len(parts) > 1 else ""
+
+    front_matter = (
+        "---\n"
+        "layout: default\n"
+        'title: "AI 前沿雷达"\n'
+        f"date: {report_date}\n"
+        f"lang: {language}\n"
+        f"generated_at: {generated_text}\n"
+        f"source_version: {resolve_source_version(source_version)}\n"
+        "---\n\n"
+    )
+    body = "# AI 前沿雷达"
+    if summary_content:
+        body += f"\n\n{summary_content}"
+    return front_matter + body + "\n"
 
 
 def _deduplication_url_key(url: str) -> tuple[str, str, str, str, Optional[int], str, str]:
@@ -292,7 +365,9 @@ class HorizonOrchestrator:
             await self.enrich_items(important_items)
 
             # 7. Generate and save daily summaries for each configured language
-            today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            today = resolve_report_date()
+            generated_at = datetime.now(timezone.utc)
+            source_version = resolve_source_version()
             for lang in self.config.ai.languages:
                 summarizer = DailySummarizer(
                     profile_names=self.profiles.names,
@@ -316,26 +391,16 @@ class HorizonOrchestrator:
 
                     dest_path = safe_output_path(posts_dir, post_filename)
 
-                    # Add Jekyll front matter
-                    front_matter = (
-                        "---\n"
-                        "layout: default\n"
-                        f"title: \"Horizon Summary: {today} ({lang.upper()})\"\n"
-                        f"date: {today}\n"
-                        f"lang: {lang}\n"
-                        "---\n\n"
-                    )
-
-                    # Strip leading H1 header to avoid duplication with Jekyll title
-                    summary_content = summary
-                    first_line = summary_content.strip().split("\n")[0]
-                    if first_line.startswith("# "):
-                        parts = summary_content.split("\n", 1)
-                        if len(parts) > 1:
-                            summary_content = parts[1].strip()
-
                     with open(dest_path, "w", encoding="utf-8") as f:
-                        f.write(front_matter + summary_content)
+                        f.write(
+                            render_jekyll_post(
+                                summary,
+                                report_date=today,
+                                language=lang,
+                                generated_at=generated_at,
+                                source_version=source_version,
+                            )
+                        )
 
                     self.console.print(
                         f"{self.icons['document']} Copied {lang.upper()} summary "
@@ -884,10 +949,13 @@ class HorizonOrchestrator:
                 )
 
         selected: List[tuple[ContentItem, str]] = []
+        selected_item_ids: set[int] = set()
         group_counts: Dict[str, int] = defaultdict(int)
         default_group = digest.default_group
 
         for item in sorted_items:
+            if id(item) in selected_item_ids:
+                continue
             category = item.metadata.get("category")
             group_key = (
                 category_to_group.get(category, default_group)
@@ -904,10 +972,26 @@ class HorizonOrchestrator:
                 continue
 
             selected.append((item, group_key))
+            selected_item_ids.add(id(item))
             group_counts[group_key] += 1
 
         if max_items is not None:
             selected = selected[:max_items]
+            selected_item_ids = {id(item) for item, _ in selected}
+            if len(selected) < max_items:
+                for item in sorted_items:
+                    if id(item) in selected_item_ids:
+                        continue
+                    category = item.metadata.get("category")
+                    group_key = (
+                        category_to_group.get(category, default_group)
+                        if isinstance(category, str)
+                        else default_group
+                    )
+                    selected.append((item, group_key))
+                    selected_item_ids.add(id(item))
+                    if len(selected) >= max_items:
+                        break
 
         final_counts: Dict[str, int] = defaultdict(int)
         for _, group_key in selected:

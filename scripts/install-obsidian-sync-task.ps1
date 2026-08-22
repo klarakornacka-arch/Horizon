@@ -124,6 +124,10 @@ function New-ObsidianSyncTaskDefinition {
         (ConvertTo-WindowsCommandLineArgument -Value $syncScript)
         '-VaultPath'
         (ConvertTo-WindowsCommandLineArgument -Value $resolvedVaultPath)
+        '-TodayRetryAttempts'
+        '6'
+        '-TodayRetryDelaySeconds'
+        '120'
     ) -join ' '
 
     return [pscustomobject]@{

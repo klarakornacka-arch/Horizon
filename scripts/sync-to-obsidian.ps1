@@ -1,11 +1,28 @@
 [CmdletBinding()]
 param(
-    [string]$Date = (Get-Date).ToString('yyyy-MM-dd'),
+    [string]$Date,
     [Parameter(Mandatory = $true)]
     [ValidateNotNullOrEmpty()]
     [string]$VaultPath,
     [string]$Repository = 'klarakornacka-arch/Horizon',
-    [string]$SourceFile
+    [string]$SourceFile,
+    [datetime]$Now = (Get-Date),
+    [ValidateRange(1, 20)]
+    [int]$TodayRetryAttempts = 6,
+    [ValidateRange(0, 600)]
+    [int]$TodayRetryDelaySeconds = 120,
+    [scriptblock]$RemoteListingProvider = {
+        param($RequestedRepository)
+        $uri = "https://api.github.com/repos/$RequestedRepository/contents/_posts?ref=gh-pages"
+        $response = @(Invoke-RestMethod -Uri $uri -Headers @{ 'User-Agent' = 'AI-Frontier-Radar-Sync'; 'Accept' = 'application/vnd.github+json' } -MaximumRedirection 5 -ConnectionTimeoutSeconds 30 -OperationTimeoutSeconds 30)
+        return $response
+    },
+    [scriptblock]$RemoteContentProvider = {
+        param($RequestedRepository, $RequestedDate, $Destination)
+        $rawUri = "https://raw.githubusercontent.com/$RequestedRepository/gh-pages/_posts/$RequestedDate-summary-zh.md"
+        Invoke-WebRequest -Uri $rawUri -Headers @{ 'User-Agent' = 'AI-Frontier-Radar-Sync'; 'Accept' = 'text/plain' } -OutFile $Destination -MaximumRedirection 5 -ConnectionTimeoutSeconds 30 -OperationTimeoutSeconds 30
+    },
+    [scriptblock]$SleepAction = { param($Seconds) Start-Sleep -Seconds $Seconds }
 )
 
 Set-StrictMode -Version Latest
@@ -103,8 +120,9 @@ function Get-CanonicalFrontMatterValues {
             throw 'Jekyll front matter must use canonical bare ASCII top-level mapping keys.'
         }
         $key = $match.Groups['key'].Value
-        if (($key -ieq 'date' -and $key -cne 'date') -or ($key -ieq 'lang' -and $key -cne 'lang')) {
-            throw 'Jekyll front matter must use canonical bare lowercase date and lang keys.'
+        $canonicalKeys = @('title', 'date', 'lang', 'generated_at', 'source_version')
+        if ($canonicalKeys -icontains $key -and $canonicalKeys -cnotcontains $key) {
+            throw 'Jekyll front matter must use canonical bare lowercase metadata keys.'
         }
         if ($values.ContainsKey($key)) {
             throw "Duplicate top-level front matter key '$key' is not allowed."
@@ -154,13 +172,77 @@ function Assert-NoReparsePointsInExistingPath {
 function Assert-SafeRepository {
     param([Parameter(Mandatory = $true)][string]$Value)
 
-    $parts = $Value -split '/', -1
+    $parts = $Value -split '/'
     if ($parts.Count -ne 2) { throw 'Repository must use safe owner/repository components.' }
     foreach ($part in $parts) {
         if ($part -eq '.' -or $part -eq '..' -or $part -notmatch '^[A-Za-z0-9_.-]+$') {
             throw 'Repository must use safe owner/repository components.'
         }
     }
+}
+
+function Get-RemotePostNames {
+    param(
+        [Parameter(Mandatory = $true)][string]$RequestedRepository,
+        [Parameter(Mandatory = $true)][scriptblock]$Provider
+    )
+
+    $entries = @(& $Provider $RequestedRepository)
+    if ($entries.Count -gt 1000) {
+        throw 'Remote post listing exceeds the bounded 1000-entry limit.'
+    }
+
+    $names = foreach ($entry in $entries) {
+        if ($entry -is [string]) {
+            $entry
+            continue
+        }
+        if ($null -eq $entry) { continue }
+        if ($entry.PSObject.Properties.Name -notcontains 'name') {
+            throw 'Remote post listing contains an entry without a name.'
+        }
+        if ($entry.PSObject.Properties.Name -contains 'type' -and $entry.type -cne 'file') {
+            continue
+        }
+        [string]$entry.name
+    }
+    return @($names)
+}
+
+function Get-DeployedChinesePostDates {
+    param(
+        [Parameter(Mandatory = $true)][AllowEmptyCollection()][string[]]$Names,
+        [Parameter(Mandatory = $true)][string]$NotLaterThan
+    )
+
+    $dates = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+    foreach ($name in $Names) {
+        $match = [regex]::Match($name, '^(?<date>\d{4}-\d{2}-\d{2})-summary-zh\.md$', [System.Text.RegularExpressions.RegexOptions]::CultureInvariant)
+        if (-not $match.Success) { continue }
+        $candidate = Get-IsoDate -Value $match.Groups['date'].Value
+        if ([string]::CompareOrdinal($candidate, $NotLaterThan) -le 0) {
+            [void]$dates.Add($candidate)
+        }
+    }
+    return @($dates | Sort-Object -Descending)
+}
+
+function Get-RemoteCandidateDates {
+    param(
+        [Parameter(Mandatory = $true)][string]$RequestedRepository,
+        [Parameter(Mandatory = $true)][string]$Today,
+        [Parameter(Mandatory = $true)][scriptblock]$ListingProvider
+    )
+
+    $names = @(Get-RemotePostNames -RequestedRepository $RequestedRepository -Provider $ListingProvider)
+    if ($names.Count -eq 0) {
+        throw "No deployed Chinese report was found not later than $Today."
+    }
+    $latestDates = @(Get-DeployedChinesePostDates -Names $names -NotLaterThan $Today)
+    if ($latestDates.Count -eq 0) {
+        throw "No deployed Chinese report was found not later than $Today."
+    }
+    return $latestDates
 }
 
 function Remove-TemporaryFile {
@@ -202,6 +284,24 @@ function Assert-Briefing {
     if ($frontMatterLanguage -cne 'zh') {
         throw 'Expected Chinese briefing front matter "lang: zh" is missing.'
     }
+    $frontMatterTitle = Get-RequiredFrontMatterValue -Values $frontMatterValues -Key 'title'
+    if ($frontMatterTitle -cne 'AI 前沿雷达') {
+        throw 'Expected canonical briefing title "AI 前沿雷达" is missing.'
+    }
+    $generatedAt = Get-RequiredFrontMatterValue -Values $frontMatterValues -Key 'generated_at'
+    $parsedTimestamp = [datetimeoffset]::MinValue
+    if ($generatedAt -notmatch '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$' -or -not [datetimeoffset]::TryParse(
+        $generatedAt,
+        [Globalization.CultureInfo]::InvariantCulture,
+        [Globalization.DateTimeStyles]::AssumeUniversal,
+        [ref]$parsedTimestamp
+    )) {
+        throw 'Expected a UTC ISO-8601 generated_at timestamp in briefing front matter.'
+    }
+    $sourceVersion = Get-RequiredFrontMatterValue -Values $frontMatterValues -Key 'source_version'
+    if ($sourceVersion -cne 'local' -and $sourceVersion -cnotmatch '^[0-9A-Fa-f]{7,64}$') {
+        throw 'Expected a safe source_version in briefing front matter.'
+    }
 
     $topThreeHeadings = [regex]::Matches($visibleMarkdown, '(?m)^##\s+今日优先选题 Top 3[ \t]*\r?$')
     if ($topThreeHeadings.Count -ne 1) {
@@ -219,7 +319,32 @@ function Test-ReparsePoint {
 
 $temporaryPath = $null
 try {
-    $dateText = Get-IsoDate -Value $Date
+    $explicitDate = $PSBoundParameters.ContainsKey('Date')
+    if (-not [string]::IsNullOrWhiteSpace($SourceFile) -and -not $explicitDate) {
+        throw 'Date must be provided when SourceFile is used.'
+    }
+    if ($explicitDate) {
+        $candidateDates = @(Get-IsoDate -Value $Date)
+        $today = $null
+        $isEvening = $false
+    } else {
+        Assert-SafeRepository -Value $Repository
+        $today = Get-IsoDate -Value $Now.ToString('yyyy-MM-dd', [Globalization.CultureInfo]::InvariantCulture)
+        $isEvening = $Now -ge $Now.Date.AddHours(19).AddMinutes(15)
+        try {
+            $candidateDates = @(Get-RemoteCandidateDates `
+                -RequestedRepository $Repository `
+                -Today $today `
+                -ListingProvider $RemoteListingProvider)
+        } catch {
+            if (-not $isEvening) { throw }
+            Write-Warning "Unable to discover a fallback report before retrying today: $($_.Exception.Message)"
+            $candidateDates = @()
+        }
+        if ($isEvening -and $candidateDates -notcontains $today) {
+            $candidateDates = @($today) + $candidateDates
+        }
+    }
 
     $vaultInput = [System.IO.Path]::GetFullPath($VaultPath)
     Assert-NoReparsePointsInExistingPath -Path $vaultInput -Description 'VaultPath'
@@ -237,55 +362,79 @@ try {
     Assert-ChildPath -Root $resolvedVault -Candidate $destinationDirectory -Description 'Destination directory'
     Assert-NoReparsePointsInExistingPath -Path $destinationDirectory -Description 'Destination directory'
 
-    $destination = [System.IO.Path]::GetFullPath([System.IO.Path]::Combine($destinationDirectory, "$dateText.md"))
-    Assert-ChildPath -Root $destinationDirectory -Candidate $destination -Description 'Destination file'
-    Assert-ChildPath -Root $resolvedVault -Candidate $destination -Description 'Destination file'
-    if (Test-ReparsePoint -Path $destination) {
-        throw 'Destination file is a reparse point; refusing to replace it.'
-    }
-
-    # This protects static or accidental reparse escapes. It is not a defense against a malicious
-    # concurrent process swapping filesystem objects between these checks and the final move.
-    Assert-NoReparsePointsInExistingPath -Path $vaultInput -Description 'VaultPath'
-    Assert-NoReparsePointsInExistingPath -Path $destinationDirectory -Description 'Destination directory'
-    $temporaryPath = [System.IO.Path]::Combine($destinationDirectory, ".ai-frontier-radar-$([guid]::NewGuid()).tmp")
-    Assert-ChildPath -Root $destinationDirectory -Candidate $temporaryPath -Description 'Temporary file'
-    $stream = [System.IO.File]::Open($temporaryPath, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
-    $stream.Dispose()
-
-    if ([string]::IsNullOrWhiteSpace($SourceFile)) {
-        Assert-SafeRepository -Value $Repository
-        $rawUri = "https://raw.githubusercontent.com/$Repository/gh-pages/_posts/$dateText-summary-zh.md"
-        Invoke-WebRequest -Uri $rawUri -Headers @{ 'User-Agent' = 'AI-Frontier-Radar-Sync'; 'Accept' = 'text/plain' } -OutFile $temporaryPath -MaximumRedirection 5
-    } else {
-        $resolvedSource = [System.IO.Path]::GetFullPath($SourceFile)
-        if (-not [System.IO.File]::Exists($resolvedSource)) {
-            throw "Local source file does not exist: $SourceFile"
+    foreach ($dateText in $candidateDates) {
+        $destination = [System.IO.Path]::GetFullPath([System.IO.Path]::Combine($destinationDirectory, "$dateText.md"))
+        Assert-ChildPath -Root $destinationDirectory -Candidate $destination -Description 'Destination file'
+        Assert-ChildPath -Root $resolvedVault -Candidate $destination -Description 'Destination file'
+        if (Test-ReparsePoint -Path $destination) {
+            throw 'Destination file is a reparse point; refusing to replace it.'
         }
-        [System.IO.File]::Copy($resolvedSource, $temporaryPath, $true)
-    }
 
-    Assert-Briefing -Path $temporaryPath -ExpectedDate $dateText
-    Assert-NoReparsePointsInExistingPath -Path $vaultInput -Description 'VaultPath'
-    Assert-NoReparsePointsInExistingPath -Path $destinationDirectory -Description 'Destination directory'
-    if (Test-ReparsePoint -Path $destination) { throw 'Destination file is a reparse point; refusing to replace it.' }
-    if ([System.IO.File]::Exists($destination)) {
-        $destinationHash = (Get-FileHash -LiteralPath $destination -Algorithm SHA256).Hash
-        $temporaryHash = (Get-FileHash -LiteralPath $temporaryPath -Algorithm SHA256).Hash
-        if ($destinationHash -eq $temporaryHash) {
-            Write-Output "Unchanged: $destination"
-            return
+        $candidateAttempts = if ($isEvening -and $dateText -ceq $today) { $TodayRetryAttempts } else { 1 }
+        $candidateError = $null
+        $candidateIsValid = $false
+        for ($candidateAttempt = 1; $candidateAttempt -le $candidateAttempts; $candidateAttempt++) {
+            # This protects static or accidental reparse escapes. It is not a defense against a malicious
+            # concurrent process swapping filesystem objects between these checks and the final move.
+            Assert-NoReparsePointsInExistingPath -Path $vaultInput -Description 'VaultPath'
+            Assert-NoReparsePointsInExistingPath -Path $destinationDirectory -Description 'Destination directory'
+            $temporaryPath = [System.IO.Path]::Combine($destinationDirectory, ".ai-frontier-radar-$([guid]::NewGuid()).tmp")
+            Assert-ChildPath -Root $destinationDirectory -Candidate $temporaryPath -Description 'Temporary file'
+            $stream = [System.IO.File]::Open($temporaryPath, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
+            $stream.Dispose()
+
+            try {
+                if ([string]::IsNullOrWhiteSpace($SourceFile)) {
+                    Assert-SafeRepository -Value $Repository
+                    & $RemoteContentProvider $Repository $dateText $temporaryPath
+                } else {
+                    $resolvedSource = [System.IO.Path]::GetFullPath($SourceFile)
+                    if (-not [System.IO.File]::Exists($resolvedSource)) {
+                        throw "Local source file does not exist: $SourceFile"
+                    }
+                    [System.IO.File]::Copy($resolvedSource, $temporaryPath, $true)
+                }
+                Assert-Briefing -Path $temporaryPath -ExpectedDate $dateText
+                $candidateIsValid = $true
+                break
+            } catch {
+                $candidateError = $_
+                Remove-TemporaryFile -Path $temporaryPath -Description 'temporary download file'
+                $temporaryPath = $null
+                if ($candidateAttempt -lt $candidateAttempts) {
+                    & $SleepAction $TodayRetryDelaySeconds
+                }
+            }
         }
+        if (-not $candidateIsValid) {
+            if ($explicitDate) { throw $candidateError }
+            Write-Warning "Skipping invalid or unavailable deployed report for ${dateText}: $($candidateError.Exception.Message)"
+            continue
+        }
+
         Assert-NoReparsePointsInExistingPath -Path $vaultInput -Description 'VaultPath'
         Assert-NoReparsePointsInExistingPath -Path $destinationDirectory -Description 'Destination directory'
         if (Test-ReparsePoint -Path $destination) { throw 'Destination file is a reparse point; refusing to replace it.' }
-        [System.IO.File]::Move($temporaryPath, $destination, $true)
-    } else {
-        Assert-NoReparsePointsInExistingPath -Path $vaultInput -Description 'VaultPath'
-        Assert-NoReparsePointsInExistingPath -Path $destinationDirectory -Description 'Destination directory'
-        [System.IO.File]::Move($temporaryPath, $destination)
+        if ([System.IO.File]::Exists($destination)) {
+            $destinationHash = (Get-FileHash -LiteralPath $destination -Algorithm SHA256).Hash
+            $temporaryHash = (Get-FileHash -LiteralPath $temporaryPath -Algorithm SHA256).Hash
+            if ($destinationHash -eq $temporaryHash) {
+                Write-Output "Unchanged: $destination"
+                return
+            }
+            Assert-NoReparsePointsInExistingPath -Path $vaultInput -Description 'VaultPath'
+            Assert-NoReparsePointsInExistingPath -Path $destinationDirectory -Description 'Destination directory'
+            if (Test-ReparsePoint -Path $destination) { throw 'Destination file is a reparse point; refusing to replace it.' }
+            [System.IO.File]::Move($temporaryPath, $destination, $true)
+        } else {
+            Assert-NoReparsePointsInExistingPath -Path $vaultInput -Description 'VaultPath'
+            Assert-NoReparsePointsInExistingPath -Path $destinationDirectory -Description 'Destination directory'
+            [System.IO.File]::Move($temporaryPath, $destination)
+        }
+        Write-Output "Synced: $destination"
+        return
     }
-    Write-Output "Synced: $destination"
+    throw 'No valid deployed Chinese report could be synchronized.'
 } finally {
     Remove-TemporaryFile -Path $temporaryPath -Description 'temporary download file'
 }

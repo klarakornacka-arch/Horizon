@@ -41,10 +41,14 @@ New-Item -ItemType Directory -Path $testRoot | Out-Null
 Write-Utf8File -Path $source -Content @"
 ---
 layout: default
-title: "Horizon Summary: $date (ZH)"
+title: "AI 前沿雷达"
 date: $date
 lang: zh
+generated_at: 2026-08-22T11:00:00Z
+source_version: abcdef1234567890
 ---
+
+# AI 前沿雷达
 
 ## 今日 AI 核心趋势概览
 测试摘要
@@ -68,10 +72,14 @@ try {
     Write-Utf8File -Path $source -Content @"
 ---
 layout: default
-title: "Horizon Summary: $date (ZH)"
+title: "AI 前沿雷达"
 date: $date
 lang: zh
+generated_at: 2026-08-22T11:00:00Z
+source_version: abcdef1234567890
 ---
+
+# AI 前沿雷达
 
 ## 今日 AI 核心趋势概览
 更新后的测试摘要
@@ -86,10 +94,14 @@ lang: zh
     Write-Utf8File -Path $source -Content (@'
 ---
 layout: default
-title: "Horizon Summary: {0} (ZH)"
+title: "AI 前沿雷达"
 date: {0}
 lang: zh
+generated_at: 2026-08-22T11:00:00Z
+source_version: abcdef1234567890
 ---
+
+# AI 前沿雷达
 
 ## 今日优先选题 Top 3
 1. 围栏外的有效选题
@@ -105,10 +117,15 @@ lang: zh
     Write-Utf8File -Path $source -Content (@'
 ---
 layout: default
-title: "Example <body> text is metadata, not a document"
+title: "AI 前沿雷达"
+description: "Example <body> text is metadata, not a document"
 date: {0}
 lang: zh
+generated_at: 2026-08-22T11:00:00Z
+source_version: abcdef1234567890
 ---
+
+# AI 前沿雷达
 
 Use `<html>` as an inline-code example.
 
@@ -120,9 +137,14 @@ Use `<html>` as an inline-code example.
 
     Write-Utf8File -Path $source -Content (@'
 ---
+title: "AI 前沿雷达"
 date: {0}
 lang: zh
+generated_at: 2026-08-22T11:00:00Z
+source_version: abcdef1234567890
 ---
+
+# AI 前沿雷达
 
 ## 今日优先选题 Top 3
 1. 围栏关闭必须严格
@@ -138,9 +160,14 @@ lang: zh
 
     Write-Utf8File -Path $source -Content @"
 ---
+title: "AI 前沿雷达"
 date: $date
 lang: zh
+generated_at: 2026-08-22T11:00:00Z
+source_version: abcdef1234567890
 ---
+# AI 前沿雷达
+
 ## 今日优先选题 Top 3
 1. 缩进代码块外的有效选题
 
@@ -153,10 +180,13 @@ lang: zh
     Write-Utf8File -Path $source -Content @"
 ---
 layout: default
-title: "Horizon Summary: $date (ZH)"
+title: "AI 前沿雷达"
 date: $date
 lang: zh
+generated_at: 2026-08-22T11:00:00Z
+source_version: abcdef1234567890
 ---
+# AI 前沿雷达
 <!-- A proxy can prepend text before an HTML error page. -->
 <html><body>GitHub error page</body></html>
 
@@ -170,9 +200,13 @@ lang: zh
 
     Write-Utf8File -Path $source -Content @"
 ---
+title: "AI 前沿雷达"
 date: $date
 lang: zh
+generated_at: 2026-08-22T11:00:00Z
+source_version: abcdef1234567890
 ---
+# AI 前沿雷达
 没有优先选题章节
 "@
     Assert-Fails -Message 'Missing Top 3 heading was accepted' -ExpectedError 'exactly one' -Action {
@@ -182,9 +216,13 @@ lang: zh
 
     Write-Utf8File -Path $source -Content @"
 ---
+title: "AI 前沿雷达"
 date: $date
 lang: zh
+generated_at: 2026-08-22T11:00:00Z
+source_version: abcdef1234567890
 ---
+# AI 前沿雷达
 ## 今日优先选题 Top 3
 1. 一
 
@@ -198,8 +236,12 @@ lang: zh
 
     Write-Utf8File -Path $source -Content @"
 ---
+title: "AI 前沿雷达"
 date: $date
+generated_at: 2026-08-22T11:00:00Z
+source_version: abcdef1234567890
 ---
+# AI 前沿雷达
 ## 今日优先选题 Top 3
 1. 没有中文元数据
 "@
@@ -207,6 +249,51 @@ date: $date
         & "$PSScriptRoot\sync-to-obsidian.ps1" -Date $date -VaultPath $vault -SourceFile $source
     }
     Assert-TargetHash -ExpectedHash $secondHash -Message 'Chinese metadata validation damaged the existing note'
+
+    Write-Utf8File -Path $source -Content @"
+---
+title: "Horizon Summary"
+date: $date
+lang: zh
+generated_at: 2026-08-22T11:00:00Z
+source_version: abcdef1234567890
+---
+## 今日优先选题 Top 3
+1. 标题错误
+"@
+    Assert-Fails -Message 'Non-canonical title was accepted' -ExpectedError 'canonical briefing title' -Action {
+        & "$PSScriptRoot\sync-to-obsidian.ps1" -Date $date -VaultPath $vault -SourceFile $source
+    }
+
+    Write-Utf8File -Path $source -Content @"
+---
+title: "AI 前沿雷达"
+date: $date
+lang: zh
+generated_at: 2026-08-22 11:00:00
+source_version: abcdef1234567890
+---
+## 今日优先选题 Top 3
+1. 时间戳错误
+"@
+    Assert-Fails -Message 'Non-UTC generation timestamp was accepted' -ExpectedError 'UTC ISO-8601 generated_at' -Action {
+        & "$PSScriptRoot\sync-to-obsidian.ps1" -Date $date -VaultPath $vault -SourceFile $source
+    }
+
+    Write-Utf8File -Path $source -Content @"
+---
+title: "AI 前沿雷达"
+date: $date
+lang: zh
+generated_at: 2026-08-22T11:00:00Z
+source_version: ../../private-checkout
+---
+## 今日优先选题 Top 3
+1. 来源版本错误
+"@
+    Assert-Fails -Message 'Unsafe source version was accepted' -ExpectedError 'safe source_version' -Action {
+        & "$PSScriptRoot\sync-to-obsidian.ps1" -Date $date -VaultPath $vault -SourceFile $source
+    }
 
     Write-Utf8File -Path $source -Content @"
 ---
@@ -320,8 +407,11 @@ lang: zh
 
     Write-Utf8File -Path $source -Content @"
 ---
+title: "AI 前沿雷达"
 date: $date
 lang: zh
+generated_at: 2026-08-22T11:00:00Z
+source_version: abcdef1234567890
 ---
 ## 今日优先选题 Top 3
 1. 用于路径安全测试的有效选题
@@ -357,8 +447,11 @@ lang: zh
     try {
         Write-Utf8File -Path $source -Content @"
 ---
+title: "AI 前沿雷达"
 date: $date
 lang: zh
+generated_at: 2026-08-22T11:00:00Z
+source_version: abcdef1234567890
 ---
 ## 今日优先选题 Top 3
 1. 在锁定目标上的有效更新

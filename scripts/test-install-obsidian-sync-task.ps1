@@ -116,7 +116,12 @@ try {
     New-Item -ItemType Directory -Path $scriptDirectory, $vault | Out-Null
     Copy-Item -LiteralPath $installer -Destination $copiedInstaller
     [System.IO.File]::WriteAllText($copiedSyncScript, @'
-param([Parameter(Mandatory = $true)][string]$VaultPath)
+param(
+    [Parameter(Mandatory = $true)][string]$VaultPath,
+    [int]$TodayRetryAttempts,
+    [int]$TodayRetryDelaySeconds
+)
+if ($TodayRetryAttempts -ne 6 -or $TodayRetryDelaySeconds -ne 120) { exit 9 }
 Write-Output $VaultPath
 '@)
     [System.IO.File]::WriteAllText($vaultFile, 'not a directory')
@@ -128,7 +133,7 @@ Write-Output $VaultPath
     $definition = & $copiedInstaller -VaultPath $vault -PowerShellPath $realPwsh -DefinitionOnly
     $canonicalVault = (Resolve-Path -LiteralPath $vault).ProviderPath
     $canonicalSync = (Resolve-Path -LiteralPath $copiedSyncScript).ProviderPath
-    $expectedArgument = "-NoProfile -ExecutionPolicy Bypass -File `"$canonicalSync`" -VaultPath `"$canonicalVault`""
+    $expectedArgument = "-NoProfile -ExecutionPolicy Bypass -File `"$canonicalSync`" -VaultPath `"$canonicalVault`" -TodayRetryAttempts 6 -TodayRetryDelaySeconds 120"
 
     if ($definition.TaskName -ne 'AI Frontier Radar - Obsidian Sync') { throw 'Definition has an unexpected task name.' }
     if ($definition.VaultPath -ne $canonicalVault) { throw 'Definition did not canonicalize VaultPath.' }
