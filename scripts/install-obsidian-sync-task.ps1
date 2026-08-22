@@ -4,7 +4,8 @@ param(
     [Parameter(Mandatory = $true)]
     [ValidateNotNullOrEmpty()]
     [string]$VaultPath,
-    [string]$PowerShellPath
+    [string]$PowerShellPath,
+    [switch]$DefinitionOnly
 )
 
 Set-StrictMode -Version Latest
@@ -61,69 +62,131 @@ function Resolve-PowerShellExecutable {
     if (-not (Test-Path -LiteralPath $resolved -PathType Leaf)) {
         throw "PowerShell executable is not a file: $resolved"
     }
+    if ([System.IO.Path]::GetFileName($resolved) -ine 'pwsh.exe') {
+        throw "PowerShell executable must be pwsh.exe: $resolved"
+    }
     return $resolved
+}
+
+function Resolve-VaultDirectory {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    if (-not [System.IO.Path]::IsPathFullyQualified($Path)) {
+        throw 'VaultPath must be an absolute path.'
+    }
+    if (-not (Test-Path -LiteralPath $Path -PathType Container)) {
+        throw 'VaultPath must exist and be a directory.'
+    }
+    return (Resolve-Path -LiteralPath $Path -ErrorAction Stop).ProviderPath
 }
 
 function Assert-PowerShell7OrLater {
     param([Parameter(Mandatory = $true)][string]$ExecutablePath)
 
-    $majorVersionText = & $ExecutablePath -NoLogo -NoProfile -Command '$PSVersionTable.PSVersion.Major'
+    $majorVersionText = @(& $ExecutablePath -NoLogo -NoProfile -Command '$PSVersionTable.PSVersion.Major')
     if ($LASTEXITCODE -ne 0) {
         throw "Unable to determine the PowerShell version for '$ExecutablePath'."
     }
     $majorVersion = 0
-    if (-not [int]::TryParse(($majorVersionText | Select-Object -Last 1).ToString().Trim(), [ref]$majorVersion) -or $majorVersion -lt 7) {
+    $reportedVersion = ([string]($majorVersionText | Select-Object -Last 1)).Trim()
+    if (-not [int]::TryParse($reportedVersion, [ref]$majorVersion) -or $majorVersion -lt 7) {
         throw "PowerShell 7 or later is required; '$ExecutablePath' reported '$majorVersionText'."
     }
 }
 
-$scriptDirectory = (Resolve-Path -LiteralPath $PSScriptRoot -ErrorAction Stop).ProviderPath
-$repositoryRoot = (Resolve-Path -LiteralPath (Join-Path $scriptDirectory '..') -ErrorAction Stop).ProviderPath
-$expectedSyncScript = [System.IO.Path]::GetFullPath((Join-Path $scriptDirectory 'sync-to-obsidian.ps1'))
-$syncScript = (Resolve-Path -LiteralPath $expectedSyncScript -ErrorAction Stop).ProviderPath
-if (-not [string]::Equals($syncScript, $expectedSyncScript, [System.StringComparison]::OrdinalIgnoreCase)) {
-    throw 'Resolved sync script does not match the installer repository path.'
-}
-if (-not (Test-Path -LiteralPath $syncScript -PathType Leaf)) {
-    throw "Sync script is not a file: $syncScript"
-}
-if (-not (Test-Path -LiteralPath $repositoryRoot -PathType Container)) {
-    throw "Repository root is not a directory: $repositoryRoot"
+function New-ObsidianSyncTaskDefinition {
+    param(
+        [Parameter(Mandatory = $true)][string]$RequestedVaultPath,
+        [string]$RequestedPowerShellPath
+    )
+
+    $scriptDirectory = (Resolve-Path -LiteralPath $PSScriptRoot -ErrorAction Stop).ProviderPath
+    $repositoryRoot = (Resolve-Path -LiteralPath (Join-Path $scriptDirectory '..') -ErrorAction Stop).ProviderPath
+    $expectedSyncScript = [System.IO.Path]::GetFullPath((Join-Path $scriptDirectory 'sync-to-obsidian.ps1'))
+    $syncScript = (Resolve-Path -LiteralPath $expectedSyncScript -ErrorAction Stop).ProviderPath
+    if (-not [string]::Equals($syncScript, $expectedSyncScript, [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw 'Resolved sync script does not match the installer repository path.'
+    }
+    if (-not (Test-Path -LiteralPath $syncScript -PathType Leaf)) {
+        throw "Sync script is not a file: $syncScript"
+    }
+    if (-not (Test-Path -LiteralPath $repositoryRoot -PathType Container)) {
+        throw "Repository root is not a directory: $repositoryRoot"
+    }
+
+    $resolvedVaultPath = Resolve-VaultDirectory -Path $RequestedVaultPath
+    $powerShellExecutable = Resolve-PowerShellExecutable -OverridePath $RequestedPowerShellPath
+    $arguments = @(
+        '-NoProfile'
+        '-ExecutionPolicy'
+        'Bypass'
+        '-File'
+        (ConvertTo-WindowsCommandLineArgument -Value $syncScript)
+        '-VaultPath'
+        (ConvertTo-WindowsCommandLineArgument -Value $resolvedVaultPath)
+    ) -join ' '
+
+    return [pscustomobject]@{
+        TaskName = $TaskName
+        VaultPath = $resolvedVaultPath
+        Execute = $powerShellExecutable
+        Argument = $arguments
+        Triggers = @(
+            [pscustomobject]@{ Type = 'Daily'; At = '19:15' }
+            [pscustomobject]@{ Type = 'AtLogOn'; At = $null }
+        )
+        Settings = [pscustomobject]@{
+            StartWhenAvailable = $true
+            ExecutionTimeLimit = [TimeSpan]::FromMinutes(15)
+        }
+    }
 }
 
-$powerShellExecutable = Resolve-PowerShellExecutable -OverridePath $PowerShellPath
-Assert-PowerShell7OrLater -ExecutablePath $powerShellExecutable
+$definition = New-ObsidianSyncTaskDefinition -RequestedVaultPath $VaultPath -RequestedPowerShellPath $PowerShellPath
+if ($DefinitionOnly) {
+    return $definition
+}
 
-$arguments = @(
-    '-NoProfile'
-    '-ExecutionPolicy'
-    'Bypass'
-    '-File'
-    (ConvertTo-WindowsCommandLineArgument -Value $syncScript)
-    '-VaultPath'
-    (ConvertTo-WindowsCommandLineArgument -Value $VaultPath)
-) -join ' '
+if (-not $PSCmdlet.ShouldProcess($definition.TaskName, 'Register or update Obsidian synchronization scheduled task')) {
+    return
+}
 
 $currentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
 if ([string]::IsNullOrWhiteSpace($currentUser)) {
     throw 'Unable to determine the current interactive Windows user.'
 }
+Assert-PowerShell7OrLater -ExecutablePath $definition.Execute
 
-if (-not $PSCmdlet.ShouldProcess($TaskName, 'Register or update Obsidian synchronization scheduled task')) {
-    return
+$action = New-ScheduledTaskAction -Execute $definition.Execute -Argument $definition.Argument
+$triggers = foreach ($triggerDefinition in $definition.Triggers) {
+    switch ($triggerDefinition.Type) {
+        'Daily' {
+            $dailyTime = [datetime]::ParseExact(
+                $triggerDefinition.At,
+                'HH:mm',
+                [Globalization.CultureInfo]::InvariantCulture,
+                [Globalization.DateTimeStyles]::None
+            )
+            $dailyAt = Get-Date -Hour $dailyTime.Hour -Minute $dailyTime.Minute -Second 0 -Millisecond 0
+            New-ScheduledTaskTrigger -Daily -At $dailyAt
+        }
+        'AtLogOn' {
+            New-ScheduledTaskTrigger -AtLogOn
+        }
+        default {
+            throw "Unsupported task trigger type: $($triggerDefinition.Type)"
+        }
+    }
 }
-
-$action = New-ScheduledTaskAction -Execute $powerShellExecutable -Argument $arguments
-$dailyAt = Get-Date -Hour 19 -Minute 15 -Second 0 -Millisecond 0
-$triggers = @(
-    New-ScheduledTaskTrigger -Daily -At $dailyAt
-    New-ScheduledTaskTrigger -AtLogOn
-)
-$settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Minutes 15)
+$settingsArguments = @{ ExecutionTimeLimit = $definition.Settings.ExecutionTimeLimit }
+if ($definition.Settings.StartWhenAvailable) {
+    $settingsArguments.StartWhenAvailable = $true
+}
+$settings = New-ScheduledTaskSettingsSet @settingsArguments
 $principal = New-ScheduledTaskPrincipal -UserId $currentUser -LogonType Interactive -RunLevel Limited
 
 Register-ScheduledTask `
-    -TaskName $TaskName `
+    -TaskName $definition.TaskName `
     -Action $action `
     -Trigger $triggers `
     -Settings $settings `
@@ -131,4 +194,4 @@ Register-ScheduledTask `
     -Description 'Sync AI Frontier Radar Markdown into Obsidian.' `
     -Force | Out-Null
 
-Get-ScheduledTask -TaskName $TaskName
+Get-ScheduledTask -TaskName $definition.TaskName
