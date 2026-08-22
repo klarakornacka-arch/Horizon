@@ -34,6 +34,7 @@
     "hackernews": {"enabled": true, "fetch_top_stories": 30, "min_score": 80, "category": "model-industry", "profile": "auto"},
     "rss": [
       {"name": "OpenAI News", "url": "https://openai.com/news/rss.xml", "enabled": true, "category": "model-industry", "profile": "auto"},
+      {"name": "Google 新闻（中文 AI）", "url": "https://news.google.com/rss/search?q=%E4%BA%BA%E5%B7%A5%E6%99%BA%E8%83%BD+OR+AI&hl=zh-CN&gl=CN&ceid=CN:zh-Hans", "enabled": true, "category": "model-industry", "profile": "auto"},
       {"name": "Google DeepMind", "url": "https://deepmind.google/blog/rss.xml", "enabled": true, "category": "model-industry", "profile": "auto"},
       {"name": "Hugging Face Blog", "url": "https://huggingface.co/blog/feed.xml", "enabled": true, "category": "dev-open-source", "profile": "auto"},
       {"name": "Simon Willison", "url": "https://simonwillison.net/atom/everything/", "enabled": true, "category": "ai-tools", "profile": "auto"},
@@ -44,8 +45,7 @@
       "enabled": true,
       "subreddits": [
         {"subreddit": "MachineLearning", "enabled": true, "sort": "hot", "time_filter": "day", "fetch_limit": 15, "min_score": 20, "category": "model-industry", "profile": "auto"},
-        {"subreddit": "LocalLLaMA", "enabled": true, "sort": "hot", "time_filter": "day", "fetch_limit": 15, "min_score": 20, "category": "dev-open-source", "profile": "auto"},
-        {"subreddit": "ArtificialIntelligence", "enabled": true, "sort": "hot", "time_filter": "day", "fetch_limit": 12, "min_score": 10, "category": "ai-tools", "profile": "auto"}
+        {"subreddit": "LocalLLaMA", "enabled": true, "sort": "hot", "time_filter": "day", "fetch_limit": 15, "min_score": 20, "category": "dev-open-source", "profile": "auto"}
       ],
       "users": [],
       "fetch_comments": 5

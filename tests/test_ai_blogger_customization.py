@@ -42,6 +42,16 @@ def test_four_category_limits_total_fifteen():
     }
 
 
+def test_profile_settings_apply_the_required_threshold_and_deduplication():
+    profile_settings = load_config()["processing"]["profile_settings"]
+    assert set(profile_settings) == set(PROFILE_IDS)
+    for profile_id in PROFILE_IDS:
+        assert profile_settings[profile_id] == {
+            "threshold": 7.0,
+            "topic_dedup": True,
+        }
+
+
 def test_out_of_scope_sources_are_disabled():
     sources = load_config()["sources"]
     assert sources["twitter"]["enabled"] is False
@@ -49,6 +59,19 @@ def test_out_of_scope_sources_are_disabled():
     assert sources["openbb"]["enabled"] is False
     assert load_config()["email"]["enabled"] is False
     assert load_config()["webhook"]["enabled"] is False
+
+
+def test_sources_include_chinese_rss_and_only_smokeable_reddit_communities():
+    sources = load_config()["sources"]
+    assert any(
+        source["name"] == "Google 新闻（中文 AI）"
+        and "hl=zh-CN" in source["url"]
+        and "ceid=CN:zh-Hans" in source["url"]
+        for source in sources["rss"]
+    )
+    assert "ArtificialIntelligence" not in {
+        subreddit["subreddit"] for subreddit in sources["reddit"]["subreddits"]
+    }
 
 
 def test_profiles_have_expected_contract():
@@ -59,11 +82,29 @@ def test_profiles_have_expected_contract():
         assert manifest["match"] == "match.md"
         assert manifest["analysis"] == "analysis.md"
         assert manifest["enrichment"]["prompt"] == "enrichment.md"
-        assert [block["id"] for block in manifest["enrichment"]["blocks"]] == [
-            "summary",
-            "why_it_matters",
-            "creator_angles",
-            "community_discussion",
+        assert manifest["enrichment"]["blocks"] == [
+            {
+                "id": "summary",
+                "type": "section",
+                "tools": [],
+                "primary": True,
+            },
+            {
+                "id": "why_it_matters",
+                "type": "section",
+                "tools": ["web_search"],
+            },
+            {
+                "id": "creator_angles",
+                "type": "section",
+                "tools": [],
+            },
+            {
+                "id": "community_discussion",
+                "type": "section",
+                "tools": [],
+                "optional": True,
+            },
         ]
         assert (folder / "match.md").read_text(encoding="utf-8").strip()
         assert "0-2" in (folder / "analysis.md").read_text(encoding="utf-8")
