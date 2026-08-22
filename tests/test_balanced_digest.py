@@ -202,6 +202,10 @@ def test_appends_profiles_missing_from_configured_order() -> None:
     assert config.digest.profile_order == [
         "tech-news",
         "tech-blog",
+        "ai-blogger",
+        "ai-blogger-business",
+        "ai-blogger-dev",
+        "ai-blogger-tools",
         "ai-creator",
         "finance-news",
     ]
