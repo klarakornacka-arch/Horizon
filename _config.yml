@@ -1,0 +1,23 @@
+theme: jekyll-theme-cayman
+title: AI 前沿雷达
+description: 面向 AI 创作者的每日前沿情报与选题简报
+baseurl: "/Horizon" # the subpath of your site, e.g. /blog
+url: "https://klarakornacka-arch.github.io" # the base hostname & protocol for your site, e.g. http://example.com
+
+# Build settings
+markdown: kramdown
+future: true # Allow future posts to be published
+plugins:
+  - jekyll-feed
+feed:
+  path: feed.xml
+exclude:
+  - ".github"
+  - "node_modules"
+
+defaults:
+  - scope:
+      path: ""
+      type: "posts"
+    values:
+      layout: "default"
