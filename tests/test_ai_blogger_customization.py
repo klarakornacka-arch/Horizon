@@ -111,3 +111,23 @@ def test_profiles_have_expected_contract():
         assert "creator_angles" in (folder / "enrichment.md").read_text(
             encoding="utf-8"
         )
+
+
+def test_daily_workflow_is_enabled_and_minimal():
+    workflow = ROOT / ".github" / "workflows" / "daily-summary.yml"
+    text = workflow.read_text(encoding="utf-8")
+    assert "0 11 * * *" in text
+    assert "OPENAI_API_KEY" in text
+    assert "prepare_creator_brief.py" in text
+    assert "DEEPSEEK_API_KEY" not in text
+    assert "ANTHROPIC_API_KEY" not in text
+    assert "HORIZON_WEBHOOK_URL" not in text
+
+
+def test_daily_workflow_validates_the_canonical_chinese_post():
+    workflow = ROOT / ".github" / "workflows" / "daily-summary.yml"
+    text = workflow.read_text(encoding="utf-8")
+    assert 'post="docs/_posts/$DATE-summary-zh.md"' in text
+    assert 'test -f "$post"' in text
+    assert "matches=$(grep -c '^## 今日优先选题 Top 3[[:space:]]*$' \"$post\" || true)" in text
+    assert 'test "$matches" -eq 1' in text

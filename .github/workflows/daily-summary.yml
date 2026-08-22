@@ -1,0 +1,67 @@
+name: AI Frontier Radar Daily
+
+on:
+  schedule:
+    - cron: "0 11 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: ai-frontier-radar-daily
+  cancel-in-progress: false
+
+jobs:
+  daily-summary:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+      TZ: Asia/Shanghai
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.11.26"
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Prepare runtime config
+        run: cp data/config.github.json data/config.json
+
+      - name: Set report date
+        run: echo "DATE=$(date +'%Y-%m-%d')" >> "$GITHUB_ENV"
+
+      - name: Run Horizon
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: uv run horizon --hours 24
+
+      - name: Add creator selections
+        run: uv run python scripts/prepare_creator_brief.py --date "$DATE"
+
+      - name: Assert generated Chinese post exists
+        shell: bash
+        run: |
+          post="docs/_posts/$DATE-summary-zh.md"
+          test -f "$post"
+          matches=$(grep -c '^## 今日优先选题 Top 3[[:space:]]*$' "$post" || true)
+          test "$matches" -eq 1
+
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./docs
+          keep_files: true
+          publish_branch: gh-pages
+          enable_jekyll: true
+          commit_message: "Daily AI Frontier Radar: ${{ env.DATE }}"
