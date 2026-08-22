@@ -138,6 +138,20 @@ lang: zh
 
     Write-Utf8File -Path $source -Content @"
 ---
+date: $date
+lang: zh
+---
+## 今日优先选题 Top 3
+1. 缩进代码块外的有效选题
+
+    <body>四空格代码块内的标签</body>
+    ## 今日优先选题 Top 3
+"@
+    & "$PSScriptRoot\sync-to-obsidian.ps1" -Date $date -VaultPath $vault -SourceFile $source
+    $secondHash = (Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash
+
+    Write-Utf8File -Path $source -Content @"
+---
 layout: default
 title: "Horizon Summary: $date (ZH)"
 date: $date
@@ -203,7 +217,7 @@ lang: zh
 ## 今日优先选题 Top 3
 1. 重复日期键
 "@
-    Assert-Fails -Message 'Duplicate date keys were accepted' -ExpectedError 'exactly one date' -Action {
+    Assert-Fails -Message 'Duplicate date keys were accepted' -ExpectedError 'Duplicate top-level|exactly one date' -Action {
         & "$PSScriptRoot\sync-to-obsidian.ps1" -Date $date -VaultPath $vault -SourceFile $source
     }
     Assert-TargetHash -ExpectedHash $secondHash -Message 'Duplicate date validation damaged the existing note'
@@ -217,10 +231,52 @@ lang: zh
 ## 今日优先选题 Top 3
 1. 带引号的重复日期键
 "@
-    Assert-Fails -Message 'Quoted duplicate date keys were accepted' -ExpectedError 'exactly one date' -Action {
+    Assert-Fails -Message 'Quoted duplicate date keys were accepted' -ExpectedError 'canonical bare|Duplicate top-level|exactly one date' -Action {
         & "$PSScriptRoot\sync-to-obsidian.ps1" -Date $date -VaultPath $vault -SourceFile $source
     }
     Assert-TargetHash -ExpectedHash $secondHash -Message 'Quoted duplicate date validation damaged the existing note'
+
+    Write-Utf8File -Path $source -Content @"
+---
+date: $date
+"da\u0074e": $date
+lang: zh
+---
+## 今日优先选题 Top 3
+1. 转义日期键不能绕过验证
+"@
+    Assert-Fails -Message 'Escaped date key was accepted' -ExpectedError 'canonical bare' -Action {
+        & "$PSScriptRoot\sync-to-obsidian.ps1" -Date $date -VaultPath $vault -SourceFile $source
+    }
+    Assert-TargetHash -ExpectedHash $secondHash -Message 'Escaped key validation damaged the existing note'
+
+    Write-Utf8File -Path $source -Content @"
+---
+? date
+: $date
+lang: zh
+---
+## 今日优先选题 Top 3
+1. 显式键语法不能绕过验证
+"@
+    Assert-Fails -Message 'Explicit key syntax was accepted' -ExpectedError 'canonical bare' -Action {
+        & "$PSScriptRoot\sync-to-obsidian.ps1" -Date $date -VaultPath $vault -SourceFile $source
+    }
+    Assert-TargetHash -ExpectedHash $secondHash -Message 'Explicit key validation damaged the existing note'
+
+    Write-Utf8File -Path $source -Content @"
+---
+date: $date
+lang: zh
+<<: { extra: value }
+---
+## 今日优先选题 Top 3
+1. 合并键不能绕过验证
+"@
+    Assert-Fails -Message 'Merge key syntax was accepted' -ExpectedError 'canonical bare' -Action {
+        & "$PSScriptRoot\sync-to-obsidian.ps1" -Date $date -VaultPath $vault -SourceFile $source
+    }
+    Assert-TargetHash -ExpectedHash $secondHash -Message 'Merge key validation damaged the existing note'
 
     Write-Utf8File -Path $source -Content @"
 ---
@@ -231,7 +287,7 @@ lang: zh
 ## 今日优先选题 Top 3
 1. 重复语言键
 "@
-    Assert-Fails -Message 'Duplicate language keys were accepted' -ExpectedError 'exactly one lang' -Action {
+    Assert-Fails -Message 'Duplicate language keys were accepted' -ExpectedError 'Duplicate top-level|exactly one lang' -Action {
         & "$PSScriptRoot\sync-to-obsidian.ps1" -Date $date -VaultPath $vault -SourceFile $source
     }
     Assert-TargetHash -ExpectedHash $secondHash -Message 'Duplicate language validation damaged the existing note'
@@ -245,7 +301,7 @@ lang: zh
 ## 今日优先选题 Top 3
 1. 带引号的重复语言键
 "@
-    Assert-Fails -Message 'Quoted duplicate language keys were accepted' -ExpectedError 'exactly one lang' -Action {
+    Assert-Fails -Message 'Quoted duplicate language keys were accepted' -ExpectedError 'canonical bare|Duplicate top-level|exactly one lang' -Action {
         & "$PSScriptRoot\sync-to-obsidian.ps1" -Date $date -VaultPath $vault -SourceFile $source
     }
     Assert-TargetHash -ExpectedHash $secondHash -Message 'Quoted duplicate language validation damaged the existing note'

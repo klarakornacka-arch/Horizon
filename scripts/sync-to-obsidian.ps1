@@ -62,6 +62,7 @@ function Get-UnfencedMarkdown {
     $fenceLength = 0
     foreach ($line in [regex]::Split($Markdown, '\r?\n')) {
         if (-not $insideFence) {
+            if ($line -match '^(?:    |\t)') { continue }
             $openingFence = [regex]::Match($line, '^\s{0,3}(?<fence>`{3,}|~{3,})')
             if ($openingFence.Success) {
                 $fence = $openingFence.Groups['fence'].Value
@@ -91,18 +92,38 @@ function Remove-InlineCodeSpans {
     return [regex]::Replace($Markdown, '(?s)(`+).*?\1', '')
 }
 
-function Get-FrontMatterValue {
+function Get-CanonicalFrontMatterValues {
+    param([Parameter(Mandatory = $true)][string]$FrontMatter)
+
+    $values = [System.Collections.Generic.Dictionary[string, string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    foreach ($line in [regex]::Split($FrontMatter, '\r?\n')) {
+        if ([string]::IsNullOrWhiteSpace($line)) { continue }
+        $match = [regex]::Match($line, '^(?<key>[A-Za-z_][A-Za-z0-9_-]*):[ \t]*(?<value>.*)$')
+        if (-not $match.Success) {
+            throw 'Jekyll front matter must use canonical bare ASCII top-level mapping keys.'
+        }
+        $key = $match.Groups['key'].Value
+        if (($key -ieq 'date' -and $key -cne 'date') -or ($key -ieq 'lang' -and $key -cne 'lang')) {
+            throw 'Jekyll front matter must use canonical bare lowercase date and lang keys.'
+        }
+        if ($values.ContainsKey($key)) {
+            throw "Duplicate top-level front matter key '$key' is not allowed."
+        }
+        $values.Add($key, $match.Groups['value'].Value)
+    }
+    return $values
+}
+
+function Get-RequiredFrontMatterValue {
     param(
-        [Parameter(Mandatory = $true)][string]$FrontMatter,
+        [Parameter(Mandatory = $true)][System.Collections.Generic.Dictionary[string, string]]$Values,
         [Parameter(Mandatory = $true)][string]$Key
     )
 
-    $keyPattern = '(?m)^(?:{0}|''{0}''|"{0}")[ \t]*:[ \t]*(?<value>.*?)[ \t]*\r?$' -f [regex]::Escape($Key)
-    $matches = [regex]::Matches($FrontMatter, $keyPattern)
-    if ($matches.Count -ne 1) {
-        throw "Expected exactly one $Key key in Jekyll front matter; found $($matches.Count)."
+    if (-not $Values.ContainsKey($Key)) {
+        throw "Expected exactly one $Key key in Jekyll front matter; found 0."
     }
-    $value = $matches[0].Groups['value'].Value.Trim()
+    $value = $Values[$Key].Trim()
     if ($value.Length -ge 2 -and $value[0] -eq $value[$value.Length - 1] -and ($value[0] -eq '"' -or $value[0] -eq "'")) {
         return $value.Substring(1, $value.Length - 2)
     }
@@ -166,17 +187,18 @@ function Assert-Briefing {
         throw 'Expected Jekyll front matter is missing from the generated briefing.'
     }
     $frontMatter = $frontMatterMatch.Groups['frontMatter'].Value
+    $frontMatterValues = Get-CanonicalFrontMatterValues -FrontMatter $frontMatter
     $bodyStart = $frontMatterMatch.Index + $frontMatterMatch.Length
     $visibleMarkdown = Get-UnfencedMarkdown -Markdown $content.Substring($bodyStart)
     $visibleMarkdown = Remove-InlineCodeSpans -Markdown $visibleMarkdown
     if ($visibleMarkdown -match '(?is)<\s*/?\s*(?:!doctype|html|head|body)\b') {
         throw 'Downloaded content looks like an HTML/error page, not Markdown.'
     }
-    $frontMatterDate = Get-FrontMatterValue -FrontMatter $frontMatter -Key 'date'
+    $frontMatterDate = Get-RequiredFrontMatterValue -Values $frontMatterValues -Key 'date'
     if ($frontMatterDate -cne $ExpectedDate) {
         throw "Briefing front matter does not contain the expected date $ExpectedDate."
     }
-    $frontMatterLanguage = Get-FrontMatterValue -FrontMatter $frontMatter -Key 'lang'
+    $frontMatterLanguage = Get-RequiredFrontMatterValue -Values $frontMatterValues -Key 'lang'
     if ($frontMatterLanguage -cne 'zh') {
         throw 'Expected Chinese briefing front matter "lang: zh" is missing.'
     }
