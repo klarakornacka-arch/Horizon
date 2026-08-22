@@ -5,6 +5,10 @@ param(
     [ValidateNotNullOrEmpty()]
     [string]$VaultPath,
     [string]$PowerShellPath,
+    [scriptblock]$PowerShellVersionProvider = {
+        param($Executable)
+        & $Executable -NoLogo -NoProfile -Command '$PSVersionTable.PSVersion.ToString()'
+    },
     [switch]$DefinitionOnly
 )
 
@@ -80,17 +84,17 @@ function Resolve-VaultDirectory {
     return (Resolve-Path -LiteralPath $Path -ErrorAction Stop).ProviderPath
 }
 
-function Assert-PowerShell7OrLater {
-    param([Parameter(Mandatory = $true)][string]$ExecutablePath)
+function Assert-PowerShell74OrLater {
+    param(
+        [Parameter(Mandatory = $true)][string]$ExecutablePath,
+        [Parameter(Mandatory = $true)][scriptblock]$VersionProvider
+    )
 
-    $majorVersionText = @(& $ExecutablePath -NoLogo -NoProfile -Command '$PSVersionTable.PSVersion.Major')
-    if ($LASTEXITCODE -ne 0) {
-        throw "Unable to determine the PowerShell version for '$ExecutablePath'."
-    }
-    $majorVersion = 0
-    $reportedVersion = ([string]($majorVersionText | Select-Object -Last 1)).Trim()
-    if (-not [int]::TryParse($reportedVersion, [ref]$majorVersion) -or $majorVersion -lt 7) {
-        throw "PowerShell 7 or later is required; '$ExecutablePath' reported '$majorVersionText'."
+    $versionOutput = @(& $VersionProvider $ExecutablePath)
+    $reportedVersion = ([string]($versionOutput | Select-Object -Last 1)).Trim()
+    $parsedVersion = $null
+    if (-not [version]::TryParse($reportedVersion, [ref]$parsedVersion) -or $parsedVersion -lt [version]'7.4') {
+        throw "PowerShell 7.4 or later is required; '$ExecutablePath' reported '$reportedVersion'."
     }
 }
 
@@ -128,6 +132,12 @@ function New-ObsidianSyncTaskDefinition {
         '6'
         '-TodayRetryDelaySeconds'
         '120'
+        '-RequestTimeoutSeconds'
+        '15'
+        '-OverallDeadlineSeconds'
+        '810'
+        '-FallbackCandidateLimit'
+        '3'
     ) -join ' '
 
     return [pscustomobject]@{
@@ -151,6 +161,8 @@ if ($DefinitionOnly) {
     return $definition
 }
 
+Assert-PowerShell74OrLater -ExecutablePath $definition.Execute -VersionProvider $PowerShellVersionProvider
+
 if (-not $PSCmdlet.ShouldProcess($definition.TaskName, 'Register or update Obsidian synchronization scheduled task')) {
     return
 }
@@ -159,8 +171,6 @@ $currentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
 if ([string]::IsNullOrWhiteSpace($currentUser)) {
     throw 'Unable to determine the current interactive Windows user.'
 }
-Assert-PowerShell7OrLater -ExecutablePath $definition.Execute
-
 $action = New-ScheduledTaskAction -Execute $definition.Execute -Argument $definition.Argument
 $triggers = foreach ($triggerDefinition in $definition.Triggers) {
     switch ($triggerDefinition.Type) {

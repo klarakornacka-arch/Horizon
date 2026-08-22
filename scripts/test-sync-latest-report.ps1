@@ -29,10 +29,19 @@ source_version: abcdef1234567890
 }
 
 function New-ContentProvider {
+    $availableFixtures = $fixtures
     return {
         param($Repository, $Date, $Destination)
-        [System.IO.File]::Copy($fixtures[$Date], $Destination, $true)
+        [System.IO.File]::Copy($availableFixtures[$Date], $Destination, $true)
     }.GetNewClosure()
+}
+
+function New-TreeResponse {
+    param([string[]]$Paths)
+    return [pscustomobject]@{
+        truncated = $false
+        tree = @($Paths | ForEach-Object { [pscustomobject]@{ type = 'blob'; path = $_ } })
+    }
 }
 
 try {
@@ -43,10 +52,11 @@ try {
     $listingCalls = [System.Collections.Generic.List[string]]::new()
     $todayContentCalls = [System.Collections.Generic.List[string]]::new()
     $sleepCalls = [System.Collections.Generic.List[int]]::new()
+    $eveningResponse = New-TreeResponse -Paths @('_posts/2026-08-21-summary-zh.md', '_posts/2026-08-22-summary-zh.md')
     $eveningListingProvider = {
         param($Repository)
         [void]$listingCalls.Add($Repository)
-        return @('2026-08-21-summary-zh.md', '2026-08-22-summary-zh.md')
+        return $eveningResponse
     }.GetNewClosure()
     $delayedContentProvider = {
         param($Repository, $Date, $Destination)
@@ -63,11 +73,11 @@ try {
         -Now ([datetime]'2026-08-22T19:15:00') `
         -TodayRetryAttempts 6 `
         -TodayRetryDelaySeconds 120 `
-        -RemoteListingProvider $eveningListingProvider `
+        -RemoteTreeProvider $eveningListingProvider `
         -RemoteContentProvider $delayedContentProvider `
         -SleepAction $sleepAction
 
-    if ($listingCalls.Count -ne 1) { throw "Evening discovery made $($listingCalls.Count) listing requests instead of 1." }
+    if ($listingCalls.Count -ne 6) { throw "Evening discovery made $($listingCalls.Count) tree requests instead of 6." }
     if ($todayContentCalls.Count -ne 6 -or ($todayContentCalls | Where-Object { $_ -ne '2026-08-22' }).Count -ne 0) {
         throw 'Evening sync did not retry today content exactly 6 times before succeeding.'
     }
@@ -80,6 +90,8 @@ try {
 
     $firstReportVault = Join-Path $testRoot 'first-report-vault'
     $firstReportFixture = $fixtures['2026-08-22']
+    $emptyTreeResponse = New-TreeResponse -Paths @()
+    $emptyTreeProvider = { param($Repository) $emptyTreeResponse }.GetNewClosure()
     $firstReportContentProvider = {
         param($Repository, $Date, $Destination)
         [System.IO.File]::Copy($firstReportFixture, $Destination, $true)
@@ -87,7 +99,7 @@ try {
     & $syncScript `
         -VaultPath $firstReportVault `
         -Now ([datetime]'2026-08-22T19:15:00') `
-        -RemoteListingProvider { param($Repository) return @() } `
+        -RemoteTreeProvider $emptyTreeProvider `
         -RemoteContentProvider $firstReportContentProvider `
         -SleepAction { param($Seconds) throw 'Available today content should not sleep.' }
     if (-not (Test-Path -LiteralPath (Join-Path $firstReportVault 'AI情报日报\2026-08-22.md'))) {
@@ -96,23 +108,24 @@ try {
 
     $morningVault = Join-Path $testRoot 'morning-vault'
     $morningCalls = [System.Collections.Generic.List[string]]::new()
+    $morningResponse = New-TreeResponse -Paths @(
+        'README.md',
+        '../2026-08-22-summary-zh.md',
+        '_posts/2026-08-23-summary-zh.md',
+        '_posts/2026-08-20-summary-zh.md',
+        '_posts/2026-08-21-summary-zh.md'
+    )
     $morningListingProvider = {
         param($Repository)
         [void]$morningCalls.Add($Repository)
-        return @(
-            'README.md',
-            '../2026-08-22-summary-zh.md',
-            '2026-08-23-summary-zh.md',
-            '2026-08-20-summary-zh.md',
-            '2026-08-21-summary-zh.md'
-        )
+        return $morningResponse
     }.GetNewClosure()
     $unexpectedSleep = { param($Seconds) throw 'Morning discovery must not sleep.' }
 
     & $syncScript `
         -VaultPath $morningVault `
         -Now ([datetime]'2026-08-22T08:00:00') `
-        -RemoteListingProvider $morningListingProvider `
+        -RemoteTreeProvider $morningListingProvider `
         -RemoteContentProvider (New-ContentProvider) `
         -SleepAction $unexpectedSleep
 
@@ -125,10 +138,11 @@ try {
     $fallbackCalls = [System.Collections.Generic.List[string]]::new()
     $fallbackContentCalls = [System.Collections.Generic.List[string]]::new()
     $fallbackSleeps = [System.Collections.Generic.List[int]]::new()
+    $fallbackResponse = New-TreeResponse -Paths @('_posts/2026-08-20-summary-zh.md', '_posts/2026-08-21-summary-zh.md')
     $fallbackListingProvider = {
         param($Repository)
         [void]$fallbackCalls.Add($Repository)
-        return @('2026-08-20-summary-zh.md', '2026-08-21-summary-zh.md')
+        return $fallbackResponse
     }.GetNewClosure()
     $fallbackContentProvider = {
         param($Repository, $Date, $Destination)
@@ -143,11 +157,11 @@ try {
         -Now ([datetime]'2026-08-22T20:00:00') `
         -TodayRetryAttempts 6 `
         -TodayRetryDelaySeconds 120 `
-        -RemoteListingProvider $fallbackListingProvider `
+        -RemoteTreeProvider $fallbackListingProvider `
         -RemoteContentProvider $fallbackContentProvider `
         -SleepAction $fallbackSleep
 
-    if ($fallbackCalls.Count -ne 1 -or $fallbackSleeps.Count -ne 5) {
+    if ($fallbackCalls.Count -ne 6 -or $fallbackSleeps.Count -ne 5) {
         throw 'Evening fallback did not exhaust the bounded retry policy.'
     }
     if (($fallbackContentCalls | Where-Object { $_ -eq '2026-08-22' }).Count -ne 6 -or $fallbackContentCalls[-1] -ne '2026-08-21') {

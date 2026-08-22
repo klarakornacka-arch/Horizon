@@ -11,18 +11,27 @@ param(
     [int]$TodayRetryAttempts = 6,
     [ValidateRange(0, 600)]
     [int]$TodayRetryDelaySeconds = 120,
-    [scriptblock]$RemoteListingProvider = {
-        param($RequestedRepository)
-        $uri = "https://api.github.com/repos/$RequestedRepository/contents/_posts?ref=gh-pages"
-        $response = @(Invoke-RestMethod -Uri $uri -Headers @{ 'User-Agent' = 'AI-Frontier-Radar-Sync'; 'Accept' = 'application/vnd.github+json' } -MaximumRedirection 5 -ConnectionTimeoutSeconds 30 -OperationTimeoutSeconds 30)
-        return $response
+    [ValidateRange(1, 60)]
+    [int]$RequestTimeoutSeconds = 15,
+    [ValidateRange(30, 810)]
+    [int]$OverallDeadlineSeconds = 810,
+    [ValidateRange(1, 10)]
+    [int]$FallbackCandidateLimit = 3,
+    [scriptblock]$RemoteTreeProvider = {
+        param($RequestedRepository, $TimeoutSeconds)
+        $uri = "https://api.github.com/repos/$RequestedRepository/git/trees/gh-pages?recursive=1"
+        $bytes = Invoke-BoundedHttpGet -Uri $uri -TimeoutSeconds $TimeoutSeconds -MaximumBytes 2097152
+        $json = ([System.Text.UTF8Encoding]::new($false, $true)).GetString($bytes)
+        return ($json | ConvertFrom-Json -Depth 5)
     },
     [scriptblock]$RemoteContentProvider = {
-        param($RequestedRepository, $RequestedDate, $Destination)
+        param($RequestedRepository, $RequestedDate, $Destination, $TimeoutSeconds)
         $rawUri = "https://raw.githubusercontent.com/$RequestedRepository/gh-pages/_posts/$RequestedDate-summary-zh.md"
-        Invoke-WebRequest -Uri $rawUri -Headers @{ 'User-Agent' = 'AI-Frontier-Radar-Sync'; 'Accept' = 'text/plain' } -OutFile $Destination -MaximumRedirection 5 -ConnectionTimeoutSeconds 30 -OperationTimeoutSeconds 30
+        $bytes = Invoke-BoundedHttpGet -Uri $rawUri -TimeoutSeconds $TimeoutSeconds -MaximumBytes 2097152
+        [System.IO.File]::WriteAllBytes($Destination, $bytes)
     },
-    [scriptblock]$SleepAction = { param($Seconds) Start-Sleep -Seconds $Seconds }
+    [scriptblock]$SleepAction = { param($Seconds) Start-Sleep -Seconds $Seconds },
+    [scriptblock]$ClockAction = { [datetimeoffset]::UtcNow }
 )
 
 Set-StrictMode -Version Latest
@@ -181,43 +190,85 @@ function Assert-SafeRepository {
     }
 }
 
-function Get-RemotePostNames {
+function Invoke-BoundedHttpGet {
     param(
-        [Parameter(Mandatory = $true)][string]$RequestedRepository,
-        [Parameter(Mandatory = $true)][scriptblock]$Provider
+        [Parameter(Mandatory = $true)][uri]$Uri,
+        [Parameter(Mandatory = $true)][int]$TimeoutSeconds,
+        [Parameter(Mandatory = $true)][int]$MaximumBytes
     )
 
-    $entries = @(& $Provider $RequestedRepository)
-    if ($entries.Count -gt 1000) {
-        throw 'Remote post listing exceeds the bounded 1000-entry limit.'
+    $handler = [System.Net.Http.HttpClientHandler]::new()
+    $handler.AllowAutoRedirect = $true
+    $handler.MaxAutomaticRedirections = 5
+    $client = [System.Net.Http.HttpClient]::new($handler, $true)
+    $client.DefaultRequestHeaders.UserAgent.ParseAdd('AI-Frontier-Radar-Sync')
+    $client.Timeout = [System.Threading.Timeout]::InfiniteTimeSpan
+    $cancellation = [System.Threading.CancellationTokenSource]::new()
+    $cancellation.CancelAfter([TimeSpan]::FromSeconds($TimeoutSeconds))
+    $response = $null
+    $stream = $null
+    $memory = [System.IO.MemoryStream]::new()
+    try {
+        $response = $client.GetAsync(
+            $Uri,
+            [System.Net.Http.HttpCompletionOption]::ResponseHeadersRead,
+            $cancellation.Token
+        ).GetAwaiter().GetResult()
+        $response.EnsureSuccessStatusCode() | Out-Null
+        $contentLength = $response.Content.Headers.ContentLength
+        if ($null -ne $contentLength -and $contentLength -gt $MaximumBytes) {
+            throw "HTTP response is oversized (maximum $MaximumBytes bytes)."
+        }
+        $stream = $response.Content.ReadAsStreamAsync($cancellation.Token).GetAwaiter().GetResult()
+        $buffer = [byte[]]::new(8192)
+        while (($read = $stream.ReadAsync($buffer, 0, $buffer.Length, $cancellation.Token).GetAwaiter().GetResult()) -gt 0) {
+            if ($memory.Length + $read -gt $MaximumBytes) {
+                throw "HTTP response is oversized (maximum $MaximumBytes bytes)."
+            }
+            $memory.Write($buffer, 0, $read)
+        }
+        return $memory.ToArray()
+    } catch [System.OperationCanceledException] {
+        throw "HTTP request timed out after $TimeoutSeconds seconds."
+    } finally {
+        if ($null -ne $stream) { $stream.Dispose() }
+        if ($null -ne $response) { $response.Dispose() }
+        $memory.Dispose()
+        $cancellation.Dispose()
+        $client.Dispose()
     }
-
-    $names = foreach ($entry in $entries) {
-        if ($entry -is [string]) {
-            $entry
-            continue
-        }
-        if ($null -eq $entry) { continue }
-        if ($entry.PSObject.Properties.Name -notcontains 'name') {
-            throw 'Remote post listing contains an entry without a name.'
-        }
-        if ($entry.PSObject.Properties.Name -contains 'type' -and $entry.type -cne 'file') {
-            continue
-        }
-        [string]$entry.name
-    }
-    return @($names)
 }
 
-function Get-DeployedChinesePostDates {
+function Get-TreePostDates {
     param(
-        [Parameter(Mandatory = $true)][AllowEmptyCollection()][string[]]$Names,
+        [Parameter(Mandatory = $true)]$Response,
         [Parameter(Mandatory = $true)][string]$NotLaterThan
     )
 
+    if ($Response.PSObject.Properties.Name -notcontains 'truncated' -or $Response.truncated -isnot [bool]) {
+        throw 'Git tree response is malformed: truncated must be a Boolean.'
+    }
+    if ($Response.truncated) {
+        throw 'Git tree response is truncated; refusing incomplete discovery.'
+    }
+    if ($Response.PSObject.Properties.Name -notcontains 'tree' -or $null -eq $Response.tree) {
+        throw 'Git tree response is malformed: tree is missing.'
+    }
+    $entries = @($Response.tree)
+    if ($entries.Count -gt 1000) {
+        throw 'Git tree response exceeds the bounded 1000-entry limit.'
+    }
+
     $dates = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
-    foreach ($name in $Names) {
-        $match = [regex]::Match($name, '^(?<date>\d{4}-\d{2}-\d{2})-summary-zh\.md$', [System.Text.RegularExpressions.RegexOptions]::CultureInvariant)
+    foreach ($entry in $entries) {
+        if ($null -eq $entry -or $entry.PSObject.Properties.Name -notcontains 'type' -or $entry.PSObject.Properties.Name -notcontains 'path') {
+            throw 'Git tree response contains a malformed entry.'
+        }
+        if ($entry.type -isnot [string] -or $entry.path -isnot [string]) {
+            throw 'Git tree response contains a malformed entry type or path.'
+        }
+        if ($entry.type -cne 'blob') { continue }
+        $match = [regex]::Match($entry.path, '^_posts/(?<date>\d{4}-\d{2}-\d{2})-summary-zh\.md$', [System.Text.RegularExpressions.RegexOptions]::CultureInvariant)
         if (-not $match.Success) { continue }
         $candidate = Get-IsoDate -Value $match.Groups['date'].Value
         if ([string]::CompareOrdinal($candidate, $NotLaterThan) -le 0) {
@@ -231,18 +282,39 @@ function Get-RemoteCandidateDates {
     param(
         [Parameter(Mandatory = $true)][string]$RequestedRepository,
         [Parameter(Mandatory = $true)][string]$Today,
-        [Parameter(Mandatory = $true)][scriptblock]$ListingProvider
+        [Parameter(Mandatory = $true)][int]$TimeoutSeconds,
+        [Parameter(Mandatory = $true)][scriptblock]$TreeProvider
     )
 
-    $names = @(Get-RemotePostNames -RequestedRepository $RequestedRepository -Provider $ListingProvider)
-    if ($names.Count -eq 0) {
-        throw "No deployed Chinese report was found not later than $Today."
-    }
-    $latestDates = @(Get-DeployedChinesePostDates -Names $names -NotLaterThan $Today)
+    $response = & $TreeProvider $RequestedRepository $TimeoutSeconds
+    $latestDates = @(Get-TreePostDates -Response $response -NotLaterThan $Today)
     if ($latestDates.Count -eq 0) {
         throw "No deployed Chinese report was found not later than $Today."
     }
     return $latestDates
+}
+
+function Assert-TimeBudget {
+    param(
+        [Parameter(Mandatory = $true)][datetimeoffset]$Deadline,
+        [Parameter(Mandatory = $true)][int]$RequiredSeconds,
+        [Parameter(Mandatory = $true)][scriptblock]$Clock,
+        [Parameter(Mandatory = $true)][string]$Operation
+    )
+
+    if (-not (Test-TimeBudget -Deadline $Deadline -RequiredSeconds $RequiredSeconds -Clock $Clock)) {
+        throw "Overall deadline budget cannot accommodate $Operation ($RequiredSeconds seconds required)."
+    }
+}
+
+function Test-TimeBudget {
+    param(
+        [Parameter(Mandatory = $true)][datetimeoffset]$Deadline,
+        [Parameter(Mandatory = $true)][int]$RequiredSeconds,
+        [Parameter(Mandatory = $true)][scriptblock]$Clock
+    )
+    $now = [datetimeoffset](& $Clock)
+    return (($Deadline - $now).TotalSeconds -ge $RequiredSeconds)
 }
 
 function Remove-TemporaryFile {
@@ -319,6 +391,8 @@ function Test-ReparsePoint {
 
 $temporaryPath = $null
 try {
+    $startedAt = [datetimeoffset](& $ClockAction)
+    $deadline = $startedAt.AddSeconds($OverallDeadlineSeconds)
     $explicitDate = $PSBoundParameters.ContainsKey('Date')
     if (-not [string]::IsNullOrWhiteSpace($SourceFile) -and -not $explicitDate) {
         throw 'Date must be provided when SourceFile is used.'
@@ -327,22 +401,21 @@ try {
         $candidateDates = @(Get-IsoDate -Value $Date)
         $today = $null
         $isEvening = $false
+        $latestFallbackDates = @()
     } else {
         Assert-SafeRepository -Value $Repository
         $today = Get-IsoDate -Value $Now.ToString('yyyy-MM-dd', [Globalization.CultureInfo]::InvariantCulture)
         $isEvening = $Now -ge $Now.Date.AddHours(19).AddMinutes(15)
-        try {
-            $candidateDates = @(Get-RemoteCandidateDates `
+        $latestFallbackDates = @()
+        if ($isEvening) {
+            $candidateDates = @($today)
+        } else {
+            Assert-TimeBudget -Deadline $deadline -RequiredSeconds $RequestTimeoutSeconds -Clock $ClockAction -Operation 'remote tree discovery'
+            $candidateDates = @(@(Get-RemoteCandidateDates `
                 -RequestedRepository $Repository `
                 -Today $today `
-                -ListingProvider $RemoteListingProvider)
-        } catch {
-            if (-not $isEvening) { throw }
-            Write-Warning "Unable to discover a fallback report before retrying today: $($_.Exception.Message)"
-            $candidateDates = @()
-        }
-        if ($isEvening -and $candidateDates -notcontains $today) {
-            $candidateDates = @($today) + $candidateDates
+                -TimeoutSeconds $RequestTimeoutSeconds `
+                -TreeProvider $RemoteTreeProvider) | Select-Object -First $FallbackCandidateLimit)
         }
     }
 
@@ -362,7 +435,9 @@ try {
     Assert-ChildPath -Root $resolvedVault -Candidate $destinationDirectory -Description 'Destination directory'
     Assert-NoReparsePointsInExistingPath -Path $destinationDirectory -Description 'Destination directory'
 
-    foreach ($dateText in $candidateDates) {
+    $candidateIndex = 0
+    while ($candidateIndex -lt $candidateDates.Count) {
+        $dateText = $candidateDates[$candidateIndex]
         $destination = [System.IO.Path]::GetFullPath([System.IO.Path]::Combine($destinationDirectory, "$dateText.md"))
         Assert-ChildPath -Root $destinationDirectory -Candidate $destination -Description 'Destination file'
         Assert-ChildPath -Root $resolvedVault -Candidate $destination -Description 'Destination file'
@@ -374,6 +449,28 @@ try {
         $candidateError = $null
         $candidateIsValid = $false
         for ($candidateAttempt = 1; $candidateAttempt -le $candidateAttempts; $candidateAttempt++) {
+            if ($isEvening -and $dateText -ceq $today) {
+                if (-not (Test-TimeBudget -Deadline $deadline -RequiredSeconds $RequestTimeoutSeconds -Clock $ClockAction)) {
+                    $candidateError = [System.Management.Automation.ErrorRecord]::new(
+                        [System.TimeoutException]::new('Overall deadline budget cannot accommodate remote tree discovery.'),
+                        'OverallDeadline',
+                        [System.Management.Automation.ErrorCategory]::OperationTimeout,
+                        $null
+                    )
+                    break
+                }
+                try {
+                    $discoveredDates = @(Get-RemoteCandidateDates `
+                        -RequestedRepository $Repository `
+                        -Today $today `
+                        -TimeoutSeconds $RequestTimeoutSeconds `
+                        -TreeProvider $RemoteTreeProvider)
+                    $latestFallbackDates = @($discoveredDates | Where-Object { $_ -cne $today } | Select-Object -First $FallbackCandidateLimit)
+                } catch {
+                    Write-Warning "Remote tree discovery attempt $candidateAttempt failed; retaining the latest fallback list: $($_.Exception.Message)"
+                }
+            }
+
             # This protects static or accidental reparse escapes. It is not a defense against a malicious
             # concurrent process swapping filesystem objects between these checks and the final move.
             Assert-NoReparsePointsInExistingPath -Path $vaultInput -Description 'VaultPath'
@@ -386,7 +483,8 @@ try {
             try {
                 if ([string]::IsNullOrWhiteSpace($SourceFile)) {
                     Assert-SafeRepository -Value $Repository
-                    & $RemoteContentProvider $Repository $dateText $temporaryPath
+                    Assert-TimeBudget -Deadline $deadline -RequiredSeconds $RequestTimeoutSeconds -Clock $ClockAction -Operation "report request for $dateText"
+                    & $RemoteContentProvider $Repository $dateText $temporaryPath $RequestTimeoutSeconds
                 } else {
                     $resolvedSource = [System.IO.Path]::GetFullPath($SourceFile)
                     if (-not [System.IO.File]::Exists($resolvedSource)) {
@@ -402,6 +500,9 @@ try {
                 Remove-TemporaryFile -Path $temporaryPath -Description 'temporary download file'
                 $temporaryPath = $null
                 if ($candidateAttempt -lt $candidateAttempts) {
+                    if (-not (Test-TimeBudget -Deadline $deadline -RequiredSeconds $TodayRetryDelaySeconds -Clock $ClockAction)) {
+                        break
+                    }
                     & $SleepAction $TodayRetryDelaySeconds
                 }
             }
@@ -409,6 +510,10 @@ try {
         if (-not $candidateIsValid) {
             if ($explicitDate) { throw $candidateError }
             Write-Warning "Skipping invalid or unavailable deployed report for ${dateText}: $($candidateError.Exception.Message)"
+            if ($isEvening -and $dateText -ceq $today) {
+                $candidateDates = @($today) + $latestFallbackDates
+            }
+            $candidateIndex++
             continue
         }
 

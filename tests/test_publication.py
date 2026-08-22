@@ -36,10 +36,31 @@ def test_published_post_has_canonical_identity_and_metadata() -> None:
     assert 'title: "AI 前沿雷达"' in post
     assert "date: 2026-08-23" in post
     assert "generated_at: 2026-08-22T16:30:00Z" in post
-    assert "source_version: abcdef1234567890" in post
+    assert 'source_version: "abcdef1234567890"' in post
     assert post.count("# AI 前沿雷达") == 1
     assert "Old generated heading" not in post
     assert "Digest body" in post
+
+
+def test_source_version_is_quoted_even_when_sha_looks_numeric() -> None:
+    post = orchestrator_module.render_jekyll_post(
+        "Digest body",
+        report_date="2026-08-23",
+        language="zh",
+        generated_at=datetime(2026, 8, 22, 16, 30, tzinfo=timezone.utc),
+        source_version="1234567",
+    )
+    unsafe = orchestrator_module.render_jekyll_post(
+        "Digest body",
+        report_date="2026-08-23",
+        language="zh",
+        generated_at=datetime(2026, 8, 22, 16, 30, tzinfo=timezone.utc),
+        source_version='abcdef1"\nunsafe: true',
+    )
+
+    assert 'source_version: "1234567"' in post
+    assert 'source_version: "local"' in unsafe
+    assert "unsafe: true" not in unsafe
 
 
 def test_workflow_passes_shanghai_date_to_horizon() -> None:

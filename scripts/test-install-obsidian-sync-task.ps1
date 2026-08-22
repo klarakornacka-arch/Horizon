@@ -119,9 +119,18 @@ try {
 param(
     [Parameter(Mandatory = $true)][string]$VaultPath,
     [int]$TodayRetryAttempts,
-    [int]$TodayRetryDelaySeconds
+    [int]$TodayRetryDelaySeconds,
+    [int]$RequestTimeoutSeconds,
+    [int]$OverallDeadlineSeconds,
+    [int]$FallbackCandidateLimit
 )
-if ($TodayRetryAttempts -ne 6 -or $TodayRetryDelaySeconds -ne 120) { exit 9 }
+if (
+    $TodayRetryAttempts -ne 6 -or
+    $TodayRetryDelaySeconds -ne 120 -or
+    $RequestTimeoutSeconds -ne 15 -or
+    $OverallDeadlineSeconds -ne 810 -or
+    $FallbackCandidateLimit -ne 3
+) { exit 9 }
 Write-Output $VaultPath
 '@)
     [System.IO.File]::WriteAllText($vaultFile, 'not a directory')
@@ -133,7 +142,7 @@ Write-Output $VaultPath
     $definition = & $copiedInstaller -VaultPath $vault -PowerShellPath $realPwsh -DefinitionOnly
     $canonicalVault = (Resolve-Path -LiteralPath $vault).ProviderPath
     $canonicalSync = (Resolve-Path -LiteralPath $copiedSyncScript).ProviderPath
-    $expectedArgument = "-NoProfile -ExecutionPolicy Bypass -File `"$canonicalSync`" -VaultPath `"$canonicalVault`" -TodayRetryAttempts 6 -TodayRetryDelaySeconds 120"
+    $expectedArgument = "-NoProfile -ExecutionPolicy Bypass -File `"$canonicalSync`" -VaultPath `"$canonicalVault`" -TodayRetryAttempts 6 -TodayRetryDelaySeconds 120 -RequestTimeoutSeconds 15 -OverallDeadlineSeconds 810 -FallbackCandidateLimit 3"
 
     if ($definition.TaskName -ne 'AI Frontier Radar - Obsidian Sync') { throw 'Definition has an unexpected task name.' }
     if ($definition.VaultPath -ne $canonicalVault) { throw 'Definition did not canonicalize VaultPath.' }
@@ -169,6 +178,12 @@ Write-Output $VaultPath
     Assert-Fails -ExpectedError 'must be pwsh.exe' -Action { & $copiedInstaller -VaultPath $vault -PowerShellPath $wrongExecutable -DefinitionOnly }
     Assert-Fails -ExpectedError 'must be pwsh.exe' -Action { & $copiedInstaller -VaultPath $vault -PowerShellPath $wrongCommand -DefinitionOnly }
     Assert-Fails -ExpectedError 'Cannot find path' -Action { & $copiedInstaller -VaultPath $vault -PowerShellPath (Join-Path $testRoot 'missing.exe') -DefinitionOnly }
+
+    Assert-Fails -ExpectedError '7.4 or later' -Action {
+        & $copiedInstaller -VaultPath $vault -PowerShellPath $realPwsh -PowerShellVersionProvider { param($Executable) '7.3' } -WhatIf
+    }
+    & $copiedInstaller -VaultPath $vault -PowerShellPath $realPwsh -PowerShellVersionProvider { param($Executable) '7.4' } -WhatIf
+    & $copiedInstaller -VaultPath $vault -PowerShellPath $realPwsh -WhatIf
 
     'BEHAVIOR PASS'
 } finally {

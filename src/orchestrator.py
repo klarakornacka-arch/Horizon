@@ -114,7 +114,7 @@ def render_jekyll_post(
         f"date: {report_date}\n"
         f"lang: {language}\n"
         f"generated_at: {generated_text}\n"
-        f"source_version: {resolve_source_version(source_version)}\n"
+        f'source_version: "{resolve_source_version(source_version)}"\n'
         "---\n\n"
     )
     body = "# AI 前沿雷达"
