@@ -1,205 +1,96 @@
 {
   "ai": {
-    "provider": "deepseek",
-    "model": "deepseek-v4-flash",
-    "base_url": "https://api.deepseek.com",
-    "api_key_env": "DEEPSEEK_API_KEY",
-    "temperature": 0.3,
+    "provider": "openai",
+    "model": "gpt-5.6-luna",
+    "api_key_env": "OPENAI_API_KEY",
+    "temperature": 0.2,
     "max_tokens": 8192,
     "throttle_sec": 1,
-    "languages": [
-      "zh",
-      "en"
-    ],
-    "analysis_concurrency": 5,
-    "enrichment_concurrency": 5
+    "languages": ["zh"],
+    "analysis_concurrency": 2,
+    "enrichment_concurrency": 2
   },
   "processing": {
     "profiles_dir": "profiles",
-    "default_profile": "tech-news",
+    "default_profile": "ai-blogger",
     "profile_settings": {
-      "tech-news": {
-        "threshold": 7.0,
-        "topic_dedup": true
-      },
-      "tech-blog": {
-        "threshold": 4.0,
-        "topic_dedup": false
-      },
-      "finance-news": {
-        "threshold": 7.0,
-        "topic_dedup": true
-      }
+      "ai-blogger": {"threshold": 7.0, "topic_dedup": true},
+      "ai-blogger-tools": {"threshold": 7.0, "topic_dedup": true},
+      "ai-blogger-dev": {"threshold": 7.0, "topic_dedup": true},
+      "ai-blogger-business": {"threshold": 7.0, "topic_dedup": true}
     }
   },
+  "display": {"icon_style": "emoji"},
+  "email": {"enabled": false, "imap_server": "", "smtp_server": "", "email_address": ""},
   "sources": {
     "github": [
-      {
-        "type": "user_events",
-        "username": "karpathy",
-        "enabled": true,
-        "profile": "tech-news"
-      },
-      {
-        "type": "repo_releases",
-        "owner": "vllm-project",
-        "repo": "vllm",
-        "enabled": true,
-        "profile": "tech-news"
-      },
-      {
-        "type": "repo_releases",
-        "owner": "sgl-project",
-        "repo": "sglang",
-        "enabled": true,
-        "profile": "tech-news"
-      },
-      {
-        "type": "repo_releases",
-        "owner": "triton-lang",
-        "repo": "triton",
-        "enabled": true,
-        "profile": "tech-news"
-      }
+      {"type": "repo_releases", "owner": "openai", "repo": "codex", "enabled": true, "category": "dev-open-source", "profile": "auto"},
+      {"type": "repo_releases", "owner": "openai", "repo": "openai-python", "enabled": true, "category": "dev-open-source", "profile": "auto"},
+      {"type": "repo_releases", "owner": "huggingface", "repo": "transformers", "enabled": true, "category": "dev-open-source", "profile": "auto"},
+      {"type": "repo_releases", "owner": "langchain-ai", "repo": "langchain", "enabled": true, "category": "dev-open-source", "profile": "auto"},
+      {"type": "repo_releases", "owner": "microsoft", "repo": "autogen", "enabled": true, "category": "dev-open-source", "profile": "auto"},
+      {"type": "repo_releases", "owner": "run-llama", "repo": "llama_index", "enabled": true, "category": "dev-open-source", "profile": "auto"}
     ],
-    "hackernews": {
-      "enabled": true,
-      "fetch_top_stories": 30,
-      "min_score": 150,
-      "profile": "tech-news"
-    },
+    "hackernews": {"enabled": true, "fetch_top_stories": 30, "min_score": 80, "category": "model-industry", "profile": "auto"},
     "rss": [
-      {
-        "name": "Simon Willison",
-        "url": "https://simonwillison.net/atom/everything/",
-        "enabled": true,
-        "category": "ai-tools",
-        "profile": "tech-news"
-      },
-      {
-        "name": "vLLM Blog",
-        "url": "https://vllm.ai/blog/rss.xml",
-        "enabled": true,
-        "category": "llm-inference",
-        "profile": "tech-blog",
-        "content_extractor": "trafilatura"
-      },
-      {
-        "name": "CNBC Finance",
-        "url": "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=10000664",
-        "enabled": true,
-        "category": "finance",
-        "profile": "finance-news",
-        "content_extractor": "trafilatura"
-      },
-      {
-        "name": "GitHub Trending - Daily",
-        "url": "https://mshibanami.github.io/GitHubTrendingRSS/daily/all.xml",
-        "enabled": true,
-        "category": "github-trending",
-        "profile": "tech-news"
-      },
-      {
-        "name": "Semianalysis",
-        "url": "https://newsletter.semianalysis.com/feed",
-        "enabled": true,
-        "category": "semiconductors",
-        "profile": "tech-news"
-      },
-      {
-        "name": "LWN.net",
-        "url": "https://lwn.net/headlines/full_text?key=${LWN_KEY}",
-        "enabled": true,
-        "category": "linux-kernel",
-        "profile": "tech-news"
-      }
+      {"name": "OpenAI News", "url": "https://openai.com/news/rss.xml", "enabled": true, "category": "model-industry", "profile": "auto"},
+      {"name": "Google 新闻（中文 AI）", "url": "https://news.google.com/rss/search?q=%E4%BA%BA%E5%B7%A5%E6%99%BA%E8%83%BD+OR+AI&hl=zh-CN&gl=CN&ceid=CN:zh-Hans", "enabled": true, "category": "model-industry", "profile": "auto"},
+      {"name": "Google DeepMind", "url": "https://deepmind.google/blog/rss.xml", "enabled": true, "category": "model-industry", "profile": "auto"},
+      {"name": "Hugging Face Blog", "url": "https://huggingface.co/blog/feed.xml", "enabled": true, "category": "dev-open-source", "profile": "auto"},
+      {"name": "Simon Willison", "url": "https://simonwillison.net/atom/everything/", "enabled": true, "category": "ai-tools", "profile": "auto"},
+      {"name": "vLLM Blog", "url": "https://vllm.ai/blog/rss.xml", "enabled": true, "category": "dev-open-source", "profile": "auto", "content_extractor": "trafilatura"},
+      {"name": "Latent Space", "url": "https://www.latent.space/feed", "enabled": true, "category": "ai-business", "profile": "auto"}
     ],
     "reddit": {
       "enabled": true,
       "subreddits": [
-        {
-          "subreddit": "MachineLearning",
-          "enabled": true,
-          "sort": "hot",
-          "time_filter": "day",
-          "fetch_limit": 10,
-          "min_score": 60,
-          "profile": "tech-news"
-        },
-        {
-          "subreddit": "LocalLLaMA",
-          "enabled": true,
-          "sort": "hot",
-          "time_filter": "day",
-          "fetch_limit": 10,
-          "min_score": 60,
-          "profile": "tech-news"
-        }
+        {"subreddit": "MachineLearning", "enabled": true, "sort": "hot", "time_filter": "day", "fetch_limit": 15, "min_score": 20, "category": "model-industry", "profile": "auto"},
+        {"subreddit": "LocalLLaMA", "enabled": true, "sort": "hot", "time_filter": "day", "fetch_limit": 15, "min_score": 20, "category": "dev-open-source", "profile": "auto"}
       ],
       "users": [],
-      "fetch_comments": 10
+      "fetch_comments": 5
     },
-    "telegram": {
+    "ossinsight": {
       "enabled": true,
-      "channels": [
-        {
-          "channel": "zaihuapd",
-          "enabled": true,
-          "fetch_limit": 20,
-          "profile": ["tech-news", "finance-news"]
-        }
-      ]
-    }
-  },
-  "collection": {
-    "time_window_hours": 24
-  },
-  "digest": {
-    "max_items": null,
-    "profile_order": [
-      "tech-news",
-      "tech-blog",
-      "finance-news"
-    ],
-    "category_groups": {},
-    "default_group": "other",
-    "default_group_limit": null
-  },
-  "webhook": {
-    "enabled": true,
-    "url_env": "HORIZON_WEBHOOK_URL",
-    "delivery": "summary_and_items",
-    "overview_position": "last",
-    "platform": "feishu",
-    "layout": "collapsible",
-    "fallback_layout": "markdown",
-    "languages": [
-      "zh"
-    ],
-    "request_body": {
-      "msg_type": "interactive",
-      "card": {
-        "schema": "2.0",
-        "config": {
-          "wide_screen_mode": true
-        },
-        "header": {
-          "title": {
-            "tag": "plain_text",
-            "content": "#{message_title}"
-          },
-          "template": "blue"
-        },
-        "body": {
-          "elements": [
-            {
-              "tag": "markdown",
-              "content": "#{summary}"
-            }
-          ]
-        }
-      }
+      "period": "past_24_hours",
+      "languages": ["All", "Python", "TypeScript"],
+      "keywords": ["ai", "llm", "agent", "rag", "multimodal", "inference"],
+      "min_stars": 10,
+      "max_items": 30,
+      "category": "dev-open-source",
+      "profile": "auto"
     },
-    "headers": ""
-  }
+    "google_news": {
+      "enabled": true,
+      "query": "artificial intelligence startup funding OR AI product launch",
+      "language": "en",
+      "country": "US",
+      "ceid": null,
+      "max_results": 40,
+      "category": "ai-business",
+      "profile": "auto"
+    },
+    "twitter": {"enabled": false, "users": []},
+    "telegram": {"enabled": false, "channels": []},
+    "openbb": {"enabled": false, "watchlists": []}
+  },
+  "collection": {"time_window_hours": 24},
+  "digest": {
+    "max_items": 15,
+    "profile_order": [
+      "ai-blogger",
+      "ai-blogger-tools",
+      "ai-blogger-dev",
+      "ai-blogger-business"
+    ],
+    "category_groups": {
+      "models": {"name": "模型与行业动态", "limit": 4, "categories": ["model-industry"]},
+      "tools": {"name": "AI 工具与工作流", "limit": 4, "categories": ["ai-tools"]},
+      "dev": {"name": "编程与开源项目", "limit": 4, "categories": ["dev-open-source"]},
+      "business": {"name": "商业、创业与变现", "limit": 3, "categories": ["ai-business"]}
+    },
+    "default_group": "other",
+    "default_group_limit": 1
+  },
+  "webhook": {"enabled": false}
 }
