@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: ai-frontier-radar-daily
+  group: gh-pages-deploy
   cancel-in-progress: false
 
 jobs:

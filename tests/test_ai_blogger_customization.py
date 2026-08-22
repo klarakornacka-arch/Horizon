@@ -131,3 +131,28 @@ def test_daily_workflow_validates_the_canonical_chinese_post():
     assert 'test -f "$post"' in text
     assert "matches=$(grep -c '^## 今日优先选题 Top 3[[:space:]]*$' \"$post\" || true)" in text
     assert 'test "$matches" -eq 1' in text
+
+
+def test_active_gh_pages_workflows_share_a_serialized_deploy_contract():
+    workflows = {
+        "daily": (ROOT / ".github" / "workflows" / "daily-summary.yml").read_text(
+            encoding="utf-8"
+        ),
+        "docs": (ROOT / ".github" / "workflows" / "deploy-docs.yml").read_text(
+            encoding="utf-8"
+        ),
+    }
+    concurrency = "concurrency:\n  group: gh-pages-deploy\n  cancel-in-progress: false"
+    for text in workflows.values():
+        assert concurrency in text
+        assert text.count("permissions:") == 1
+        assert "    permissions:\n      contents: write" in text
+        assert "uses: peaceiris/actions-gh-pages@v4" in text
+        assert "publish_dir: ./docs" in text
+        assert "publish_branch: gh-pages" in text
+
+    daily = workflows["daily"]
+    assert "workflow_dispatch:" in daily
+    assert daily.index('post="docs/_posts/$DATE-summary-zh.md"') < daily.index(
+        "uses: peaceiris/actions-gh-pages@v4"
+    )
