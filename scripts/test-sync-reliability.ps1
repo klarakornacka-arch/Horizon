@@ -118,13 +118,20 @@ try {
         throw 'Latest successful fallback list was not retained across later tree failures.'
     }
 
-    $oversizedPaths = @(1..1001 | ForEach-Object { "misc/file-$_.txt" })
-    $oversizedResponse = New-TreeResponse -Paths $oversizedPaths
-    $oversizedTree = { param($Repository, $TimeoutSeconds) $oversizedResponse }.GetNewClosure()
-    Assert-Fails -ExpectedError '1000|bounded|oversized' -Action {
-        & $syncScript -VaultPath (Join-Path $testRoot 'oversized') -Now ([datetime]'2026-08-22T08:00:00') `
-            -RemoteTreeProvider $oversizedTree `
-            -RemoteContentProvider { throw 'content must not be requested' }
+    $largeTreePaths = @(1..1001 | ForEach-Object { "misc/file-$_.txt" }) + @('_posts/2026-08-21-summary-zh.md')
+    $largeTreeResponse = New-TreeResponse -Paths $largeTreePaths
+    $largeTree = { param($Repository, $TimeoutSeconds) $largeTreeResponse }.GetNewClosure()
+    $largeTreeContentCalls = [System.Collections.Generic.List[string]]::new()
+    $largeTreeContent = {
+        param($Repository, $Date, $Destination, $TimeoutSeconds)
+        [void]$largeTreeContentCalls.Add($Date)
+        [System.IO.File]::Copy($fixtures[$Date], $Destination, $true)
+    }.GetNewClosure()
+    $largeTreeVault = Join-Path $testRoot 'large-tree'
+    & $syncScript -VaultPath $largeTreeVault -Now ([datetime]'2026-08-22T08:00:00') `
+        -RemoteTreeProvider $largeTree -RemoteContentProvider $largeTreeContent
+    if (($largeTreeContentCalls -join ',') -cne '2026-08-21' -or -not (Test-Path -LiteralPath (Join-Path $largeTreeVault 'AI情报日报\2026-08-21.md'))) {
+        throw 'A complete bounded tree with more than 1000 unrelated entries did not discover its valid report.'
     }
     $truncatedResponse = New-TreeResponse -Paths @('_posts/2026-08-21-summary-zh.md') -Truncated $true
     $truncatedTree = { param($Repository, $TimeoutSeconds) $truncatedResponse }.GetNewClosure()

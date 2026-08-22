@@ -255,9 +255,6 @@ function Get-TreePostDates {
         throw 'Git tree response is malformed: tree is missing.'
     }
     $entries = @($Response.tree)
-    if ($entries.Count -gt 1000) {
-        throw 'Git tree response exceeds the bounded 1000-entry limit.'
-    }
 
     $dates = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
     foreach ($entry in $entries) {
