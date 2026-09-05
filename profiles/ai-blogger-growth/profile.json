@@ -1,0 +1,19 @@
+{
+  "id": "ai-blogger-growth",
+  "name": "Beginner Growth & Daily Action",
+  "display_names": {"zh": "小白成长与当日行动"},
+  "match": "match.md",
+  "analysis": "analysis.md",
+  "enrichment": {
+    "prompt": "enrichment.md",
+    "blocks": [
+      {"id": "summary", "type": "section", "tools": [], "primary": true},
+      {"id": "selection_rationale", "type": "section", "tools": []},
+      {"id": "aesthetic_review", "type": "section", "tools": []},
+      {"id": "design_thinking", "type": "section", "tools": []},
+      {"id": "business_lens", "type": "section", "tools": []},
+      {"id": "creator_angle", "type": "section", "tools": []},
+      {"id": "today_action", "type": "section", "tools": []}
+    ]
+  }
+}

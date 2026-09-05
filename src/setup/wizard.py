@@ -415,7 +415,10 @@ def main():
         presets_path = Path(args.data_dir) / "presets.json"
         if not presets_path.exists():
             presets_path = Path("data/presets.json")
-        presets = load_presets(presets_path=str(presets_path), prefer_api=True)
+        presets_path_value = (
+            presets_path.as_posix() if not presets_path.is_absolute() else str(presets_path)
+        )
+        presets = load_presets(presets_path=presets_path_value, prefer_api=True)
         offline = os.environ.get("HORIZON_OFFLINE", "").lower() in ("1", "true", "yes")
         if offline:
             console.print("[dim]Using local presets (offline mode)[/dim]")

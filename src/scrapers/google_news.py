@@ -33,6 +33,7 @@ import math
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from typing import Any, List, Optional
+from urllib.parse import urlparse
 
 import feedparser
 import httpx
@@ -98,7 +99,7 @@ class GoogleNewsScraper(BaseScraper):
             for entry in feed.entries:
                 if len(items) >= self.gn_config.max_results:
                     break
-                item = self._entry_to_item(entry)
+                item = await self._entry_to_item(entry)
                 if item is not None:
                     items.append(item)
             return items
@@ -126,7 +127,7 @@ class GoogleNewsScraper(BaseScraper):
             return f"when:{hours}h"
         return f"after:{since_utc.strftime('%Y-%m-%d')}"
 
-    def _entry_to_item(self, entry: Any) -> Optional[ContentItem]:
+    async def _entry_to_item(self, entry: Any) -> Optional[ContentItem]:
         """Map one Google News RSS entry into a ContentItem.
 
         Returns None when the entry has no title/link or an unparseable
@@ -140,6 +141,10 @@ class GoogleNewsScraper(BaseScraper):
 
             link = (entry.get("link") or "").strip()
             if not link:
+                return None
+
+            original_url = await self._resolve_original_url(link)
+            if original_url is None:
                 return None
 
             published = self._parse_date(entry)
@@ -161,7 +166,7 @@ class GoogleNewsScraper(BaseScraper):
                 id=self._generate_id("google_news", "article", entry_hash),
                 source_type=self.SOURCE_TYPE,
                 title=title,
-                url=link,
+                url=original_url,
                 content=self._extract_content(entry),
                 author=source_name,
                 published_at=published,
@@ -171,6 +176,27 @@ class GoogleNewsScraper(BaseScraper):
         except Exception as exc:
             logger.warning("Skipping invalid Google News entry: %s", exc)
             return None
+
+    async def _resolve_original_url(self, link: str) -> Optional[str]:
+        """Resolve a Google News link to a direct external HTTPS publisher URL."""
+        try:
+            response = await self.client.get(link, follow_redirects=True)
+            response.raise_for_status()
+        except httpx.HTTPError as exc:
+            logger.warning("Skipping Google News link that could not be resolved: %s", exc)
+            return None
+
+        resolved_url = str(response.url)
+        resolved = urlparse(resolved_url)
+        hostname = (resolved.hostname or "").rstrip(".").lower()
+        if (
+            resolved.scheme != "https"
+            or not hostname
+            or hostname == "news.google.com"
+            or hostname.endswith(".news.google.com")
+        ):
+            return None
+        return resolved_url
 
     @staticmethod
     def _extract_source_name(entry: Any) -> Optional[str]:

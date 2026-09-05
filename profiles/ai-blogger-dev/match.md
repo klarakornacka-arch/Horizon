@@ -1,2 +1,2 @@
-# 编程与开源项目
-Use this profile for AI programming, SDKs, agents, RAG, inference, model serving, developer infrastructure, repositories, releases, benchmarks, and technical tutorials with reusable code. Exclude shallow product marketing and finance-first news.
+# 设计思维与品牌审美
+Use this profile for branding, identity systems, typography, UX, visual language, and design case studies. Prefer source material with observable decisions, process, or outcomes; exclude shallow product marketing.

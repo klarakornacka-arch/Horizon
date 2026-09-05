@@ -158,6 +158,7 @@ def item_context(
 
 Title: {item.title}
 URL: {item.url}
+Publication date (ISO 8601): {item.published_at.isoformat()}
 Source: {item.source_type.value}
 Author: {item.author or "Unknown"}
 Analysis summary: {analysis.summary if analysis else ""}

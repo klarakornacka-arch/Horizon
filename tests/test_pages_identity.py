@@ -22,7 +22,7 @@ def test_pages_identity_and_chinese_feed_use_fork_canonical_url() -> None:
     url = read_top_level_scalar(config, "url")
     baseurl = read_top_level_scalar(config, "baseurl")
 
-    assert title == "AI 前沿雷达"
+    assert title == "AI 设计师成长雷达"
     assert description == "面向 AI 创作者的每日前沿情报与选题简报"
     assert url == "https://klarakornacka-arch.github.io"
     assert baseurl == "/Horizon"
