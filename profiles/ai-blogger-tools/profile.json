@@ -1,16 +1,19 @@
 {
   "id": "ai-blogger-tools",
-  "name": "AI Tools & Workflows",
-  "display_names": {"zh": "AI 工具与工作流"},
+  "name": "AI Design Tools & Workflows",
+  "display_names": {"zh": "AI 设计工具与工作流"},
   "match": "match.md",
   "analysis": "analysis.md",
   "enrichment": {
     "prompt": "enrichment.md",
     "blocks": [
       {"id": "summary", "type": "section", "tools": [], "primary": true},
-      {"id": "why_it_matters", "type": "section", "tools": ["web_search"]},
-      {"id": "creator_angles", "type": "section", "tools": []},
-      {"id": "community_discussion", "type": "section", "tools": [], "optional": true}
+      {"id": "selection_rationale", "type": "section", "tools": []},
+      {"id": "aesthetic_review", "type": "section", "tools": []},
+      {"id": "design_thinking", "type": "section", "tools": []},
+      {"id": "business_lens", "type": "section", "tools": []},
+      {"id": "creator_angle", "type": "section", "tools": []},
+      {"id": "today_action", "type": "section", "tools": []}
     ]
   }
 }

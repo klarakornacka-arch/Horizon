@@ -13,17 +13,20 @@ function New-BriefingFixture {
     [System.IO.File]::WriteAllText($path, @"
 ---
 layout: default
-title: "AI 前沿雷达"
+title: "AI 设计师成长雷达"
 date: $Date
 lang: zh
 generated_at: 2026-08-22T11:00:00Z
 source_version: abcdef1234567890
 ---
 
-# AI 前沿雷达
+# AI 设计师成长雷达
 
-## 今日优先选题 Top 3
+## 今日优先创作与实践 Top 3
 1. $Date 的有效选题
+
+## 今日成长行动
+1. $Date 的有效成长行动
 "@, $utf8NoBom)
     $fixtures[$Date] = $path
 }
@@ -84,7 +87,7 @@ try {
     if ($sleepCalls.Count -ne 5 -or ($sleepCalls | Where-Object { $_ -ne 120 }).Count -ne 0) {
         throw 'Evening sync did not apply five injected 120-second waits.'
     }
-    if (-not (Test-Path -LiteralPath (Join-Path $vault 'AI情报日报\2026-08-22.md'))) {
+    if (-not (Test-Path -LiteralPath (Join-Path (Join-Path $vault '01-原始资料') 'AI行业热点日报\2026-08-22-AI行业热点日报.md'))) {
         throw 'Evening discovery did not prefer today when it became available.'
     }
 
@@ -102,7 +105,7 @@ try {
         -RemoteTreeProvider $emptyTreeProvider `
         -RemoteContentProvider $firstReportContentProvider `
         -SleepAction { param($Seconds) throw 'Available today content should not sleep.' }
-    if (-not (Test-Path -LiteralPath (Join-Path $firstReportVault 'AI情报日报\2026-08-22.md'))) {
+    if (-not (Test-Path -LiteralPath (Join-Path (Join-Path $firstReportVault '01-原始资料') 'AI行业热点日报\2026-08-22-AI行业热点日报.md'))) {
         throw 'Evening sync did not attempt today when no older deployed report existed.'
     }
 
@@ -130,7 +133,7 @@ try {
         -SleepAction $unexpectedSleep
 
     if ($morningCalls.Count -ne 1) { throw 'Morning discovery did not use exactly one listing request.' }
-    if (-not (Test-Path -LiteralPath (Join-Path $morningVault 'AI情报日报\2026-08-21.md'))) {
+    if (-not (Test-Path -LiteralPath (Join-Path (Join-Path $morningVault '01-原始资料') 'AI行业热点日报\2026-08-21-AI行业热点日报.md'))) {
         throw 'Morning discovery did not backfill the latest deployed post not later than today.'
     }
 
@@ -167,7 +170,7 @@ try {
     if (($fallbackContentCalls | Where-Object { $_ -eq '2026-08-22' }).Count -ne 6 -or $fallbackContentCalls[-1] -ne '2026-08-21') {
         throw 'Evening fallback did not retry today six times before trying the latest deployed post.'
     }
-    if (-not (Test-Path -LiteralPath (Join-Path $fallbackVault 'AI情报日报\2026-08-21.md'))) {
+    if (-not (Test-Path -LiteralPath (Join-Path (Join-Path $fallbackVault '01-原始资料') 'AI行业热点日报\2026-08-21-AI行业热点日报.md'))) {
         throw 'Evening retry exhaustion did not fall back to the latest deployed post.'
     }
 

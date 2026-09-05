@@ -427,6 +427,8 @@ class DailySummarizer:
         if primary_content.strip():
             lines.extend(["", primary_content])
         lines.extend(["", source_line])
+        if item.published_at:
+            lines.extend(["", f"发布日期：{item.published_at.date().isoformat()}"])
 
         if artifact:
             for block in artifact.blocks:

@@ -254,6 +254,7 @@ def test_appends_profiles_missing_from_configured_order() -> None:
         "ai-blogger",
         "ai-blogger-business",
         "ai-blogger-dev",
+        "ai-blogger-growth",
         "ai-blogger-tools",
         "ai-creator",
         "finance-news",

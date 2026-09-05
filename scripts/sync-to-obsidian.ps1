@@ -92,6 +92,11 @@ function Get-UnfencedMarkdown {
             $openingFence = [regex]::Match($line, '^\s{0,3}(?<fence>`{3,}|~{3,})')
             if ($openingFence.Success) {
                 $fence = $openingFence.Groups['fence'].Value
+                $infoString = $line.Substring($openingFence.Length)
+                if ($fence[0] -eq [char]0x60 -and $infoString.Contains([string][char]0x60)) {
+                    [void]$visible.AppendLine($line)
+                    continue
+                }
                 $insideFence = $true
                 $fenceCharacter = $fence[0]
                 $fenceLength = $fence.Length
@@ -116,6 +121,34 @@ function Remove-InlineCodeSpans {
     param([Parameter(Mandatory = $true)][string]$Markdown)
 
     return [regex]::Replace($Markdown, '(?s)(`+).*?\1', '')
+}
+
+function Remove-HtmlComments {
+    param([Parameter(Mandatory = $true)][string]$Markdown)
+
+    return [regex]::Replace($Markdown, '(?s)<!--.*?(?:-->|$)', '')
+}
+
+function Assert-NoHiddenRawHtml {
+    param([Parameter(Mandatory = $true)][string]$Markdown)
+
+    if ([regex]::IsMatch($Markdown, '(?i)<\s*/?\s*(?:div|script|template|style)\b')) {
+        throw 'Briefing contains raw HTML capable of hiding content.'
+    }
+    $tagPattern = '<[A-Za-z][\w-]*\b[^>]*>'
+    foreach ($tag in [regex]::Matches($Markdown, $tagPattern, [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)) {
+        $text = $tag.Value
+        $attributes = [regex]::Match($text, '^<[A-Za-z][\w-]*\b(?<attrs>[^>]*)>$', [System.Text.RegularExpressions.RegexOptions]::IgnoreCase).Groups['attrs'].Value
+        $styleValue = [regex]::Match($attributes, '(?i)(?:^|\s)style\s*=\s*(?<value>"[^"]*"|''[^'']*''|[^\s>]+)').Groups['value'].Value
+        $hasHiddenStyle = $styleValue -match '(?i)(?:display\s*:\s*none|visibility\s*:\s*hidden)'
+        if ($attributes -match '(?i)(?:^|\s)hidden(?:\s|=|$)' -or
+            $attributes -match '(?i)(?:^|\s)inert(?:\s|=|$)' -or
+            $attributes -match '(?i)(?:^|\s)aria-hidden\s*=\s*["'']?true["'']?' -or
+            $hasHiddenStyle -or
+            $text -match '(?i)^<\s*/?\s*(?:script|style|template)\b') {
+            throw 'Briefing contains raw HTML capable of hiding content.'
+        }
+    }
 }
 
 function Get-CanonicalFrontMatterValues {
@@ -342,6 +375,8 @@ function Assert-Briefing {
     $bodyStart = $frontMatterMatch.Index + $frontMatterMatch.Length
     $visibleMarkdown = Get-UnfencedMarkdown -Markdown $content.Substring($bodyStart)
     $visibleMarkdown = Remove-InlineCodeSpans -Markdown $visibleMarkdown
+    $visibleMarkdown = Remove-HtmlComments -Markdown $visibleMarkdown
+    Assert-NoHiddenRawHtml -Markdown $visibleMarkdown
     if ($visibleMarkdown -match '(?is)<\s*/?\s*(?:!doctype|html|head|body)\b') {
         throw 'Downloaded content looks like an HTML/error page, not Markdown.'
     }
@@ -354,8 +389,8 @@ function Assert-Briefing {
         throw 'Expected Chinese briefing front matter "lang: zh" is missing.'
     }
     $frontMatterTitle = Get-RequiredFrontMatterValue -Values $frontMatterValues -Key 'title'
-    if ($frontMatterTitle -cne 'AI 前沿雷达') {
-        throw 'Expected canonical briefing title "AI 前沿雷达" is missing.'
+    if ($frontMatterTitle -cne 'AI 设计师成长雷达') {
+        throw 'Expected canonical briefing title "AI 设计师成长雷达" is missing.'
     }
     $generatedAt = Get-RequiredFrontMatterValue -Values $frontMatterValues -Key 'generated_at'
     $parsedTimestamp = [datetimeoffset]::MinValue
@@ -372,9 +407,13 @@ function Assert-Briefing {
         throw 'Expected a safe source_version in briefing front matter.'
     }
 
-    $topThreeHeadings = [regex]::Matches($visibleMarkdown, '(?m)^##\s+今日优先选题 Top 3[ \t]*\r?$')
+    $topThreeHeadings = [regex]::Matches($visibleMarkdown, '(?m)^##\s+今日优先创作与实践 Top 3[ \t]*\r?$')
     if ($topThreeHeadings.Count -ne 1) {
-        throw "Expected exactly one '## 今日优先选题 Top 3' heading; found $($topThreeHeadings.Count)."
+        throw "Expected exactly one '## 今日优先创作与实践 Top 3' heading; found $($topThreeHeadings.Count)."
+    }
+    $growthHeadings = [regex]::Matches($visibleMarkdown, '(?m)^##\s+今日成长行动[ \t]*\r?$')
+    if ($growthHeadings.Count -ne 1) {
+        throw "Expected exactly one '## 今日成长行动' heading; found $($growthHeadings.Count)."
     }
 }
 
@@ -421,7 +460,8 @@ try {
     [System.IO.Directory]::CreateDirectory($vaultInput) | Out-Null
     Assert-NoReparsePointsInExistingPath -Path $vaultInput -Description 'VaultPath'
     $resolvedVault = (Resolve-Path -LiteralPath $vaultInput).ProviderPath
-    $destinationInput = [System.IO.Path]::GetFullPath([System.IO.Path]::Combine($resolvedVault, 'AI情报日报'))
+    $destinationFolder = Join-Path (Join-Path $resolvedVault '01-原始资料') 'AI行业热点日报'
+    $destinationInput = [System.IO.Path]::GetFullPath($destinationFolder)
     Assert-ChildPath -Root $resolvedVault -Candidate $destinationInput -Description 'Destination directory'
     Assert-NoReparsePointsInExistingPath -Path $destinationInput -Description 'Destination directory'
     if (Test-ReparsePoint -Path $destinationInput) {
@@ -435,7 +475,9 @@ try {
     $candidateIndex = 0
     while ($candidateIndex -lt $candidateDates.Count) {
         $dateText = $candidateDates[$candidateIndex]
-        $destination = [System.IO.Path]::GetFullPath([System.IO.Path]::Combine($destinationDirectory, "$dateText.md"))
+        $destination = [System.IO.Path]::GetFullPath(
+            [System.IO.Path]::Combine($destinationDirectory, "$dateText-AI行业热点日报.md")
+        )
         Assert-ChildPath -Root $destinationDirectory -Candidate $destination -Description 'Destination file'
         Assert-ChildPath -Root $resolvedVault -Candidate $destination -Description 'Destination file'
         if (Test-ReparsePoint -Path $destination) {
@@ -517,22 +559,40 @@ try {
         Assert-NoReparsePointsInExistingPath -Path $vaultInput -Description 'VaultPath'
         Assert-NoReparsePointsInExistingPath -Path $destinationDirectory -Description 'Destination directory'
         if (Test-ReparsePoint -Path $destination) { throw 'Destination file is a reparse point; refusing to replace it.' }
+        $temporaryHash = (Get-FileHash -LiteralPath $temporaryPath -Algorithm SHA256).Hash
         if ([System.IO.File]::Exists($destination)) {
             $destinationHash = (Get-FileHash -LiteralPath $destination -Algorithm SHA256).Hash
-            $temporaryHash = (Get-FileHash -LiteralPath $temporaryPath -Algorithm SHA256).Hash
             if ($destinationHash -eq $temporaryHash) {
                 Write-Output "Unchanged: $destination"
                 return
             }
-            Assert-NoReparsePointsInExistingPath -Path $vaultInput -Description 'VaultPath'
-            Assert-NoReparsePointsInExistingPath -Path $destinationDirectory -Description 'Destination directory'
-            if (Test-ReparsePoint -Path $destination) { throw 'Destination file is a reparse point; refusing to replace it.' }
-            [System.IO.File]::Move($temporaryPath, $destination, $true)
-        } else {
-            Assert-NoReparsePointsInExistingPath -Path $vaultInput -Description 'VaultPath'
-            Assert-NoReparsePointsInExistingPath -Path $destinationDirectory -Description 'Destination directory'
-            [System.IO.File]::Move($temporaryPath, $destination)
+
+            $revisionDestination = $null
+            foreach ($prefixLength in @(12, 16, 20, 24, 28, 32, 36, 40, 44, 48, 52, 56, 60, 64)) {
+                $revisionName = "$dateText-AI行业热点日报-rev-$($temporaryHash.ToLowerInvariant().Substring(0, $prefixLength)).md"
+                $candidateRevision = [System.IO.Path]::GetFullPath([System.IO.Path]::Combine($destinationDirectory, $revisionName))
+                Assert-ChildPath -Root $destinationDirectory -Candidate $candidateRevision -Description 'Revision destination file'
+                Assert-ChildPath -Root $resolvedVault -Candidate $candidateRevision -Description 'Revision destination file'
+                if (Test-ReparsePoint -Path $candidateRevision) { throw 'Revision destination file is a reparse point; refusing to replace it.' }
+                if ([System.IO.File]::Exists($candidateRevision)) {
+                    if ((Get-FileHash -LiteralPath $candidateRevision -Algorithm SHA256).Hash -eq $temporaryHash) {
+                        Write-Output "Unchanged: $candidateRevision"
+                        return
+                    }
+                    continue
+                }
+                $revisionDestination = $candidateRevision
+                break
+            }
+            if ($null -eq $revisionDestination) {
+                throw 'No safe immutable revision filename is available for this content.'
+            }
+            $destination = $revisionDestination
         }
+        Assert-NoReparsePointsInExistingPath -Path $vaultInput -Description 'VaultPath'
+        Assert-NoReparsePointsInExistingPath -Path $destinationDirectory -Description 'Destination directory'
+        if (Test-ReparsePoint -Path $destination) { throw 'Destination file is a reparse point; refusing to replace it.' }
+        [System.IO.File]::Move($temporaryPath, $destination)
         Write-Output "Synced: $destination"
         return
     }

@@ -43,16 +43,19 @@ function New-BriefingFixture {
     $path = Join-Path $testRoot "$Date.md"
     [System.IO.File]::WriteAllText($path, @"
 ---
-title: "AI 前沿雷达"
+title: "AI 设计师成长雷达"
 date: $Date
 lang: zh
 generated_at: 2026-08-22T11:00:00Z
 source_version: "1234567"
 ---
 
-# AI 前沿雷达
+# AI 设计师成长雷达
 
-## 今日优先选题 Top 3
+## 今日优先创作与实践 Top 3
+1. $Date
+
+## 今日成长行动
 1. $Date
 "@, $utf8NoBom)
     $fixtures[$Date] = $path
@@ -130,7 +133,7 @@ try {
     $largeTreeVault = Join-Path $testRoot 'large-tree'
     & $syncScript -VaultPath $largeTreeVault -Now ([datetime]'2026-08-22T08:00:00') `
         -RemoteTreeProvider $largeTree -RemoteContentProvider $largeTreeContent
-    if (($largeTreeContentCalls -join ',') -cne '2026-08-21' -or -not (Test-Path -LiteralPath (Join-Path $largeTreeVault 'AI情报日报\2026-08-21.md'))) {
+    if (($largeTreeContentCalls -join ',') -cne '2026-08-21' -or -not (Test-Path -LiteralPath (Join-Path (Join-Path $largeTreeVault '01-原始资料') 'AI行业热点日报\2026-08-21-AI行业热点日报.md'))) {
         throw 'A complete bounded tree with more than 1000 unrelated entries did not discover its valid report.'
     }
     $truncatedResponse = New-TreeResponse -Paths @('_posts/2026-08-21-summary-zh.md') -Truncated $true

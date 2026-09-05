@@ -62,3 +62,6 @@ logs/*.log
 todo.txt
 .ruff_cache
 .pytest_cache
+
+# Isolated feature worktrees
+.worktrees/

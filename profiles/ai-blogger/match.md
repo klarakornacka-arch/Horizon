@@ -1,2 +1,2 @@
-# 模型与行业动态
-Use this profile for major model releases, capability or pricing changes, AI policy, safety, research breakthroughs, acquisitions, partnerships, and platform announcements. Exclude routine library releases, generic tutorials, and articles whose main value is a creator tool or business tactic.
+# AI 行业与模型热点
+Use this profile for model releases, policy, research, platform changes, capability changes, and other AI-industry developments. Exclude creator workflows, design case studies, and business tactics unless the source is primarily a model or platform change.

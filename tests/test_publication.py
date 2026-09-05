@@ -33,11 +33,11 @@ def test_published_post_has_canonical_identity_and_metadata() -> None:
         source_version="abcdef1234567890",
     )
 
-    assert 'title: "AI 前沿雷达"' in post
+    assert 'title: "AI 设计师成长雷达"' in post
     assert "date: 2026-08-23" in post
     assert "generated_at: 2026-08-22T16:30:00Z" in post
     assert 'source_version: "abcdef1234567890"' in post
-    assert post.count("# AI 前沿雷达") == 1
+    assert post.count("# AI 设计师成长雷达") == 1
     assert "Old generated heading" not in post
     assert "Digest body" in post
 

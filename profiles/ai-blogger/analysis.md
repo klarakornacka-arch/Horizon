@@ -1,5 +1,5 @@
 # Evaluation goal
-Evaluate this item for a Chinese AI creator who covers industry news, useful tools, programming and open source, and AI business opportunities.
+Evaluate this item for an AI design learner and creator tracking models, policy, research, and platform changes that shape the field.
 
 # Weighted criteria
 - News importance and likely impact: 35%.

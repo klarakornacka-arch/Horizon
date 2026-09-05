@@ -110,14 +110,14 @@ def render_jekyll_post(
     front_matter = (
         "---\n"
         "layout: default\n"
-        'title: "AI 前沿雷达"\n'
+        'title: "AI 设计师成长雷达"\n'
         f"date: {report_date}\n"
         f"lang: {language}\n"
         f"generated_at: {generated_text}\n"
         f'source_version: "{resolve_source_version(source_version)}"\n'
         "---\n\n"
     )
-    body = "# AI 前沿雷达"
+    body = "# AI 设计师成长雷达"
     if summary_content:
         body += f"\n\n{summary_content}"
     return front_matter + body + "\n"

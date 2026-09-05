@@ -1,8 +1,8 @@
 {
   "ai": {
-    "provider": "openai",
-    "model": "gpt-5.6-luna",
-    "api_key_env": "OPENAI_API_KEY",
+    "provider": "deepseek",
+    "model": "deepseek-v4-flash",
+    "api_key_env": "DEEPSEEK_API_KEY",
     "temperature": 0.2,
     "max_tokens": 8192,
     "throttle_sec": 1,
@@ -17,7 +17,8 @@
       "ai-blogger": {"threshold": 7.0, "topic_dedup": true},
       "ai-blogger-tools": {"threshold": 7.0, "topic_dedup": true},
       "ai-blogger-dev": {"threshold": 7.0, "topic_dedup": true},
-      "ai-blogger-business": {"threshold": 7.0, "topic_dedup": true}
+      "ai-blogger-business": {"threshold": 7.0, "topic_dedup": true},
+      "ai-blogger-growth": {"threshold": 7.0, "topic_dedup": true}
     }
   },
   "display": {"icon_style": "emoji"},
@@ -34,12 +35,15 @@
     "hackernews": {"enabled": true, "fetch_top_stories": 30, "min_score": 80, "category": "model-industry", "profile": "auto"},
     "rss": [
       {"name": "OpenAI News", "url": "https://openai.com/news/rss.xml", "enabled": true, "category": "model-industry", "profile": "auto"},
-      {"name": "Google 新闻（中文 AI）", "url": "https://news.google.com/rss/search?q=%E4%BA%BA%E5%B7%A5%E6%99%BA%E8%83%BD+OR+AI&hl=zh-CN&gl=CN&ceid=CN:zh-Hans", "enabled": true, "category": "model-industry", "profile": "auto"},
       {"name": "Google DeepMind", "url": "https://deepmind.google/blog/rss.xml", "enabled": true, "category": "model-industry", "profile": "auto"},
       {"name": "Hugging Face Blog", "url": "https://huggingface.co/blog/feed.xml", "enabled": true, "category": "dev-open-source", "profile": "auto"},
       {"name": "Simon Willison", "url": "https://simonwillison.net/atom/everything/", "enabled": true, "category": "ai-tools", "profile": "auto"},
       {"name": "vLLM Blog", "url": "https://vllm.ai/blog/rss.xml", "enabled": true, "category": "dev-open-source", "profile": "auto", "content_extractor": "trafilatura"},
-      {"name": "Latent Space", "url": "https://www.latent.space/feed", "enabled": true, "category": "ai-business", "profile": "auto"}
+      {"name": "Latent Space", "url": "https://www.latent.space/feed", "enabled": true, "category": "ai-business", "profile": "auto"},
+      {"name": "NN/g", "url": "https://www.nngroup.com/feed/rss/", "enabled": true, "category": "designer-growth", "profile": "ai-blogger-growth"},
+      {"name": "Designboom", "url": "https://www.designboom.com/feed/", "enabled": true, "category": "design-brand", "profile": "auto"},
+      {"name": "Creative Boom", "url": "https://www.creativeboom.com/feed/", "enabled": true, "category": "design-brand", "profile": "auto"},
+      {"name": "YC Blog", "url": "https://www.ycombinator.com/blog/rss", "enabled": true, "category": "creator-business", "profile": "auto"}
     ],
     "reddit": {
       "enabled": true,
@@ -81,13 +85,15 @@
       "ai-blogger",
       "ai-blogger-tools",
       "ai-blogger-dev",
-      "ai-blogger-business"
+      "ai-blogger-business",
+      "ai-blogger-growth"
     ],
     "category_groups": {
-      "models": {"name": "模型与行业动态", "limit": 4, "categories": ["model-industry"]},
-      "tools": {"name": "AI 工具与工作流", "limit": 4, "categories": ["ai-tools"]},
-      "dev": {"name": "编程与开源项目", "limit": 4, "categories": ["dev-open-source"]},
-      "business": {"name": "商业、创业与变现", "limit": 3, "categories": ["ai-business"]}
+      "models": {"name": "AI 行业与模型热点", "limit": 4, "categories": ["model-industry"]},
+      "tools": {"name": "AI 设计工具与工作流", "limit": 3, "categories": ["ai-tools", "dev-open-source"]},
+      "design": {"name": "设计思维与品牌审美", "limit": 3, "categories": ["design-brand", "design-thinking"]},
+      "business": {"name": "自媒体选题与商业机会", "limit": 3, "categories": ["ai-business", "creator-business"]},
+      "growth": {"name": "小白成长与当日行动", "limit": 2, "categories": ["designer-growth"]}
     },
     "default_group": "other",
     "default_group_limit": 1

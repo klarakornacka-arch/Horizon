@@ -42,7 +42,7 @@ jobs:
 
       - name: Run Horizon
         env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           HORIZON_REPORT_DATE: ${{ env.DATE }}
         run: uv run horizon --hours 24
 
@@ -54,7 +54,9 @@ jobs:
         run: |
           post="docs/_posts/$DATE-summary-zh.md"
           test -f "$post"
-          matches=$(grep -c '^## 今日优先选题 Top 3[[:space:]]*$' "$post" || true)
+          growth_matches=$(grep -c '^## 今日成长行动[[:space:]]*$' "$post" || true)
+          test "$growth_matches" -eq 1
+          matches=$(grep -c '^## 今日优先创作与实践 Top 3[[:space:]]*$' "$post" || true)
           test "$matches" -eq 1
 
       - name: Deploy to GitHub Pages

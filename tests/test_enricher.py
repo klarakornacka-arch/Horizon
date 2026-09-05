@@ -139,6 +139,7 @@ def test_enrichment_generates_blocks_and_validated_sources():
         return next(responses)
 
     item = make_item()
+    item.published_at = datetime(2026, 9, 2, 9, 30, tzinfo=timezone.utc)
     enricher = ContentEnricher(
         SimpleNamespace(complete=complete),
         PROFILES,
@@ -166,6 +167,11 @@ def test_enrichment_generates_blocks_and_validated_sources():
     assert "Treat the source item as the primary account" in requests[3]["system"]
     assert "https://docs.example.com/project" not in requests[1]["user"]
     assert "https://docs.example.com/project" in requests[3]["user"]
+    assert all(
+        "Publication date (ISO 8601): 2026-09-02T09:30:00+00:00"
+        in request["user"]
+        for request in requests
+    )
 
 
 def test_enrichment_rejects_tool_on_unapproved_block():
