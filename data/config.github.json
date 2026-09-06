@@ -25,31 +25,31 @@
   "email": {"enabled": false, "imap_server": "", "smtp_server": "", "email_address": ""},
   "sources": {
     "github": [
-      {"type": "repo_releases", "owner": "openai", "repo": "codex", "enabled": true, "category": "dev-open-source", "profile": "auto"},
-      {"type": "repo_releases", "owner": "openai", "repo": "openai-python", "enabled": true, "category": "dev-open-source", "profile": "auto"},
-      {"type": "repo_releases", "owner": "huggingface", "repo": "transformers", "enabled": true, "category": "dev-open-source", "profile": "auto"},
-      {"type": "repo_releases", "owner": "langchain-ai", "repo": "langchain", "enabled": true, "category": "dev-open-source", "profile": "auto"},
-      {"type": "repo_releases", "owner": "microsoft", "repo": "autogen", "enabled": true, "category": "dev-open-source", "profile": "auto"},
-      {"type": "repo_releases", "owner": "run-llama", "repo": "llama_index", "enabled": true, "category": "dev-open-source", "profile": "auto"}
+      {"type": "repo_releases", "owner": "openai", "repo": "codex", "enabled": true, "category": "dev-open-source", "profile": "ai-blogger-tools"},
+      {"type": "repo_releases", "owner": "openai", "repo": "openai-python", "enabled": true, "category": "dev-open-source", "profile": "ai-blogger-tools"},
+      {"type": "repo_releases", "owner": "huggingface", "repo": "transformers", "enabled": true, "category": "dev-open-source", "profile": "ai-blogger-tools"},
+      {"type": "repo_releases", "owner": "langchain-ai", "repo": "langchain", "enabled": true, "category": "dev-open-source", "profile": "ai-blogger-tools"},
+      {"type": "repo_releases", "owner": "microsoft", "repo": "autogen", "enabled": true, "category": "dev-open-source", "profile": "ai-blogger-tools"},
+      {"type": "repo_releases", "owner": "run-llama", "repo": "llama_index", "enabled": true, "category": "dev-open-source", "profile": "ai-blogger-tools"}
     ],
-    "hackernews": {"enabled": true, "fetch_top_stories": 30, "min_score": 80, "category": "model-industry", "profile": "auto"},
+    "hackernews": {"enabled": true, "fetch_top_stories": 30, "min_score": 80, "category": "model-industry", "profile": "ai-blogger"},
     "rss": [
-      {"name": "OpenAI News", "url": "https://openai.com/news/rss.xml", "enabled": true, "category": "model-industry", "profile": "auto"},
-      {"name": "Google DeepMind", "url": "https://deepmind.google/blog/rss.xml", "enabled": true, "category": "model-industry", "profile": "auto"},
-      {"name": "Hugging Face Blog", "url": "https://huggingface.co/blog/feed.xml", "enabled": true, "category": "dev-open-source", "profile": "auto"},
-      {"name": "Simon Willison", "url": "https://simonwillison.net/atom/everything/", "enabled": true, "category": "ai-tools", "profile": "auto"},
-      {"name": "vLLM Blog", "url": "https://vllm.ai/blog/rss.xml", "enabled": true, "category": "dev-open-source", "profile": "auto", "content_extractor": "trafilatura"},
-      {"name": "Latent Space", "url": "https://www.latent.space/feed", "enabled": true, "category": "ai-business", "profile": "auto"},
+      {"name": "OpenAI News", "url": "https://openai.com/news/rss.xml", "enabled": true, "category": "model-industry", "profile": "ai-blogger"},
+      {"name": "Google DeepMind", "url": "https://deepmind.google/blog/rss.xml", "enabled": true, "category": "model-industry", "profile": "ai-blogger"},
+      {"name": "Hugging Face Blog", "url": "https://huggingface.co/blog/feed.xml", "enabled": true, "category": "dev-open-source", "profile": "ai-blogger-tools"},
+      {"name": "Simon Willison", "url": "https://simonwillison.net/atom/everything/", "enabled": true, "category": "ai-tools", "profile": "ai-blogger-tools"},
+      {"name": "vLLM Blog", "url": "https://vllm.ai/blog/rss.xml", "enabled": true, "category": "dev-open-source", "profile": "ai-blogger-tools", "content_extractor": "trafilatura"},
+      {"name": "Latent Space", "url": "https://www.latent.space/feed", "enabled": true, "category": "ai-business", "profile": "ai-blogger-business"},
       {"name": "NN/g", "url": "https://www.nngroup.com/feed/rss/", "enabled": true, "category": "designer-growth", "profile": "ai-blogger-growth"},
-      {"name": "Designboom", "url": "https://www.designboom.com/feed/", "enabled": true, "category": "design-brand", "profile": "auto"},
-      {"name": "Creative Boom", "url": "https://www.creativeboom.com/feed/", "enabled": true, "category": "design-brand", "profile": "auto"},
-      {"name": "YC Blog", "url": "https://www.ycombinator.com/blog/rss", "enabled": true, "category": "creator-business", "profile": "auto"}
+      {"name": "Designboom", "url": "https://www.designboom.com/feed/", "enabled": true, "category": "design-brand", "profile": "ai-blogger-dev"},
+      {"name": "Creative Boom", "url": "https://www.creativeboom.com/feed/", "enabled": true, "category": "design-brand", "profile": "ai-blogger-dev"},
+      {"name": "YC Blog", "url": "https://www.ycombinator.com/blog/rss", "enabled": true, "category": "creator-business", "profile": "ai-blogger-business"}
     ],
     "reddit": {
       "enabled": true,
       "subreddits": [
-        {"subreddit": "MachineLearning", "enabled": true, "sort": "hot", "time_filter": "day", "fetch_limit": 15, "min_score": 20, "category": "model-industry", "profile": "auto"},
-        {"subreddit": "LocalLLaMA", "enabled": true, "sort": "hot", "time_filter": "day", "fetch_limit": 15, "min_score": 20, "category": "dev-open-source", "profile": "auto"}
+        {"subreddit": "MachineLearning", "enabled": true, "sort": "hot", "time_filter": "day", "fetch_limit": 15, "min_score": 20, "category": "model-industry", "profile": "ai-blogger"},
+        {"subreddit": "LocalLLaMA", "enabled": true, "sort": "hot", "time_filter": "day", "fetch_limit": 15, "min_score": 20, "category": "dev-open-source", "profile": "ai-blogger-tools"}
       ],
       "users": [],
       "fetch_comments": 5
@@ -62,7 +62,7 @@
       "min_stars": 10,
       "max_items": 30,
       "category": "dev-open-source",
-      "profile": "auto"
+      "profile": "ai-blogger-tools"
     },
     "google_news": {
       "enabled": true,
@@ -72,7 +72,7 @@
       "ceid": null,
       "max_results": 40,
       "category": "ai-business",
-      "profile": "auto"
+      "profile": "ai-blogger-business"
     },
     "twitter": {"enabled": false, "users": []},
     "telegram": {"enabled": false, "channels": []},
