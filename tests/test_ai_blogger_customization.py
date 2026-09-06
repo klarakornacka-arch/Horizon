@@ -122,6 +122,36 @@ def test_sources_include_chinese_rss_and_only_smokeable_reddit_communities():
     }
 
 
+def test_enabled_sources_route_to_designer_profiles_by_category():
+    expected_profiles = {
+        "model-industry": "ai-blogger",
+        "ai-tools": "ai-blogger-tools",
+        "dev-open-source": "ai-blogger-tools",
+        "design-brand": "ai-blogger-dev",
+        "design-thinking": "ai-blogger-dev",
+        "ai-business": "ai-blogger-business",
+        "creator-business": "ai-blogger-business",
+        "designer-growth": "ai-blogger-growth",
+    }
+    routed_sources = []
+
+    def collect(value):
+        if isinstance(value, dict):
+            if value.get("enabled") is True and value.get("category"):
+                routed_sources.append(value)
+            for child in value.values():
+                collect(child)
+        elif isinstance(value, list):
+            for child in value:
+                collect(child)
+
+    collect(load_config()["sources"])
+
+    assert routed_sources
+    for source in routed_sources:
+        assert source["profile"] == expected_profiles[source["category"]]
+
+
 def test_google_news_config_routes_to_dedicated_scraper():
     from src.models import Config
     from src.scrapers.google_news import GoogleNewsScraper
@@ -142,15 +172,15 @@ def test_verified_design_and_creator_rss_sources_are_configured():
         },
         "https://www.designboom.com/feed/": {
             "category": "design-brand",
-            "profile": "auto",
+            "profile": "ai-blogger-dev",
         },
         "https://www.creativeboom.com/feed/": {
             "category": "design-brand",
-            "profile": "auto",
+            "profile": "ai-blogger-dev",
         },
         "https://www.ycombinator.com/blog/rss": {
             "category": "creator-business",
-            "profile": "auto",
+            "profile": "ai-blogger-business",
         },
     }.items() <= sources.items()
 
